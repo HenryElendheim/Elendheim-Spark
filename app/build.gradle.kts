@@ -44,6 +44,9 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        // FlowRow and friends are still marked experimental in this Compose
+        // version, so opt in once here rather than annotating every use site.
+        freeCompilerArgs += "-opt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi"
     }
 
     buildFeatures {
