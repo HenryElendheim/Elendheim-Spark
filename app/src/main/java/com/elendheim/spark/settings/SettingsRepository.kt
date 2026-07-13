@@ -68,7 +68,9 @@ class SettingsRepository(private val context: Context) {
         if (value == null) p.remove(Keys.defaultDeck) else p[Keys.defaultDeck] = value
     }
 
-    private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
+    // block is a suspend lambda because DataStore's edit transform is suspend;
+    // a plain lambda would not type-check against it.
+    private suspend fun edit(block: suspend (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         context.dataStore.edit(block)
     }
 }

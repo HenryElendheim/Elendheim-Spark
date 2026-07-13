@@ -1,0 +1,73 @@
+# Builds the Elendheim Spark APK in the cloud.
+#
+# GitHub's runners have the Android SDK and network access, so this is where the
+# real APK gets built. On every push it produces a downloadable APK artifact,
+# and on pushes to main it also attaches that APK to a GitHub Release named after
+# the app's version (v1.0, v1.1, ...).
+
+name: Build APK
+
+on:
+  push:
+    branches: [ main, testing ]
+  workflow_dispatch:   # lets you run it by hand from the Actions tab
+
+# The release step needs permission to create tags and releases.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up the Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run the unit tests
+        run: ./gradlew test --no-daemon
+
+      - name: Build the debug APK
+        # The debug APK is signed with the standard debug key, so it installs
+        # straight away by sideloading. For a Play-ready signed release build,
+        # add a keystore as a repository secret later.
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Read the app version
+        id: ver
+        run: echo "name=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)" >> "$GITHUB_OUTPUT"
+
+      - name: Name the APK after the version
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk "out/Elendheim-Spark-v${{ steps.ver.outputs.name }}.apk"
+
+      - name: Upload the APK as a downloadable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Elendheim-Spark-v${{ steps.ver.outputs.name }}
+          path: out/*.apk
+
+      - name: Attach the APK to the release (main only)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.name }}
+          name: Elendheim Spark v${{ steps.ver.outputs.name }}
+          body: |
+            A mix-and-match idea generator you curate yourself. It collides your
+            own wheels of raw material into fresh prompts, keeps the sparks you
+            like in a local vault, and lets you own it all with one-file
+            export/import. No network, dark mode first.
+          files: out/*.apk
