@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Elendheim Spark</string>
+
+    <!-- Main navigation destinations. -->
+    <string name="nav_collide">Collide</string>
+    <string name="nav_vault">Vault</string>
+    <string name="nav_editor">Editor</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Collider screen. -->
+    <string name="collide_button">COLLIDE</string>
+    <string name="collide_button_desc">Collide the wheels into a new idea</string>
+    <string name="reroll_desc">Reroll the unlocked wheels</string>
+    <string name="mutate_desc">Mutate: reroll one wheel only</string>
+    <string name="save_desc">Save this idea to the vault</string>
+    <string name="lock_wheel_desc">Lock this wheel so it keeps its pick</string>
+    <string name="unlock_wheel_desc">Unlock this wheel</string>
+
+    <!-- A collision landed: read out for screen readers. -->
+    <string name="result_announced">New idea: %1$s</string>
+</resources>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Base app theme used for the launch window only. The real UI is drawn
+        by Jetpack Compose (see ui/theme). We keep this dark so the moment
+        before Compose takes over already looks like Spark, not a white page.
+        Dark mode first, as intended.
+    -->
+    <style name="Theme.ElendheimSpark" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/elendheim_background</item>
+        <item name="android:navigationBarColor">@color/elendheim_background</item>
+        <item name="android:windowBackground">@color/elendheim_background</item>
+        <item name="android:colorBackground">@color/elendheim_background</item>
+    </style>
+</resources>
