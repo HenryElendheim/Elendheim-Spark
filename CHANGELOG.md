@@ -4,6 +4,20 @@ All notable changes to Elendheim Spark are recorded here. Versions run from
 v1.0 upward; small changes bump the minor number (v1.1, v1.2...) and big ones
 step toward the next whole version.
 
+## v1.1 - Elendheim Spark
+
+Calmer, easier to read, less at once.
+
+- **Set how many ideas to mix.** A new control on the Collide screen caps how
+  many wheels collide at once, so you get just the number you want instead of
+  everything firing together.
+- **Readable results.** Each pick now sits on its own line, generously spaced
+  and colour-coded to its wheel, instead of clumping into a wall of text.
+- **Recents on demand.** The recent-rolls list is tucked behind a "Recents"
+  button; it keeps your last 30 rolls, dropping the oldest as new ones arrive.
+- **Simpler deck switching.** The top now shows your current deck as a button;
+  tap it for a searchable list of your decks instead of swiping a tab strip.
+
 ## v1.0 - Elendheim Spark
 
 The first release. A mix-and-match idea generator you curate yourself.

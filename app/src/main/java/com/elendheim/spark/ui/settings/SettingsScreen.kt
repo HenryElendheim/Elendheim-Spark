@@ -162,7 +162,6 @@ fun SettingsScreen(
             SwitchRow("Larger tap targets", "Grow buttons and toggles.", s.largerTapTargets, callbacks.setLargerTargets)
             SwitchRow("Haptics", "Vibrate on collide and save.", s.haptics, callbacks.setHaptics)
             SwitchRow("Announce result", "Speak the new idea for screen readers.", s.announceResult, callbacks.setAnnounce)
-            SwitchRow("Line-by-line result", "One pick per line instead of A x B x C.", s.lineByLineResult, callbacks.setLineByLine)
         }
 
         // --- Your ideas & content ---

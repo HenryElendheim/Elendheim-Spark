@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -33,6 +34,7 @@ class SettingsRepository(private val context: Context) {
         val lineByLine = booleanPreferencesKey("line_by_line")
         val weighting = booleanPreferencesKey("weighting_enabled")
         val defaultDeck = stringPreferencesKey("default_deck_id")
+        val mixLimit = intPreferencesKey("mix_limit")
     }
 
     /** The live settings. Falls back to sensible defaults for anything unset. */
@@ -49,7 +51,8 @@ class SettingsRepository(private val context: Context) {
             announceResult = p[Keys.announce] ?: d.announceResult,
             lineByLineResult = p[Keys.lineByLine] ?: d.lineByLineResult,
             weightingEnabled = p[Keys.weighting] ?: d.weightingEnabled,
-            defaultDeckId = p[Keys.defaultDeck] ?: d.defaultDeckId
+            defaultDeckId = p[Keys.defaultDeck] ?: d.defaultDeckId,
+            mixLimit = p[Keys.mixLimit] ?: d.mixLimit
         )
     }
 
@@ -63,6 +66,8 @@ class SettingsRepository(private val context: Context) {
     suspend fun setAnnounceResult(value: Boolean) = edit { it[Keys.announce] = value }
     suspend fun setLineByLineResult(value: Boolean) = edit { it[Keys.lineByLine] = value }
     suspend fun setWeightingEnabled(value: Boolean) = edit { it[Keys.weighting] = value }
+
+    suspend fun setMixLimit(value: Int) = edit { it[Keys.mixLimit] = value }
 
     suspend fun setDefaultDeckId(value: String?) = context.dataStore.edit { p ->
         if (value == null) p.remove(Keys.defaultDeck) else p[Keys.defaultDeck] = value

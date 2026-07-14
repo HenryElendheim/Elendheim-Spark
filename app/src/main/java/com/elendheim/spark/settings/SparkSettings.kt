@@ -24,5 +24,6 @@ data class SparkSettings(
 
     // Content & behaviour
     val weightingEnabled: Boolean = false,   // honour per-entry weights globally
-    val defaultDeckId: String? = null        // which deck opens on launch (null = first deck)
+    val defaultDeckId: String? = null,       // which deck opens on launch (null = first deck)
+    val mixLimit: Int = 0                    // how many wheels to mix at once; 0 = all of them
 )

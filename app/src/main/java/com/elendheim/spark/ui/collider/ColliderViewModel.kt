@@ -187,24 +187,41 @@ class ColliderViewModel(
     }
 
     /**
-     * The wheels of [deck], in the deck's order. When weighting is switched off
-     * globally, every entry is flattened to weight 1 so rolls are pure random.
+     * The wheels of [deck] that take part in a mix, in the deck's order.
+     *
+     * The mix limit (a user setting) caps how many wheels collide at once, so
+     * the result stays readable instead of a wall of text. 0 means "all". We
+     * take the first N in deck order -> predictable, and you choose which by
+     * reordering wheels in the editor.
+     *
+     * When weighting is switched off globally, every entry is flattened to
+     * weight 1 so rolls are pure random.
      */
     private fun wheelsForDeck(deck: Deck?, allWheels: List<Wheel>): List<Wheel> {
         if (deck == null) return emptyList()
         val byId = allWheels.associateBy { it.id }
         val ordered = deck.wheelIds.mapNotNull { byId[it] }
+
+        val limit = settingsSnapshot.mixLimit
+        val limited = if (limit in 1 until ordered.size) ordered.take(limit) else ordered
+
         return if (settingsSnapshot.weightingEnabled) {
-            ordered
+            limited
         } else {
-            ordered.map { w -> w.copy(entries = w.entries.map { it.copy(weight = 1) }) }
+            limited.map { w -> w.copy(entries = w.entries.map { it.copy(weight = 1) }) }
         }
+    }
+
+    /** Change how many wheels mix at once (0 = all). Persisted in settings. */
+    fun setMixLimit(value: Int) {
+        viewModelScope.launch { settingsRepo.setMixLimit(value) }
     }
 
     private fun pushHistory(picks: List<Pick>) {
         if (picks.isEmpty()) return
-        // Keep the last ~20 so a great roll is never lost to a reflex re-roll.
-        history.value = (listOf(picks) + history.value).take(20)
+        // Newest first, capped at 30: out with the old, in with the new. A great
+        // roll is never lost to a reflex re-roll.
+        history.value = (listOf(picks) + history.value).take(30)
     }
 
     // Small 4-tuple so we can combine four transient flows at once.
