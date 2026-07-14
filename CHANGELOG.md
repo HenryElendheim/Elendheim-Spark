@@ -4,6 +4,17 @@ All notable changes to Elendheim Spark are recorded here. Versions run from
 v1.0 upward; small changes bump the minor number (v1.1, v1.2...) and big ones
 step toward the next whole version.
 
+## v1.2 - Elendheim Spark
+
+More control over each idea, and a clearer shuffle.
+
+- **Tap any pick to change just that one.** Tapping a line in the result now
+  lets you either randomize that single wheel again or type your own value in
+  its place, leaving the rest untouched. This replaces the old mutate button
+  with something you aim exactly where you want.
+- **Random-deck dice, top-right.** The dice moved up to the top-right corner
+  next to the deck name and is clearly a "jump to a random deck" control.
+
 ## v1.1 - Elendheim Spark
 
 Calmer, easier to read, less at once.

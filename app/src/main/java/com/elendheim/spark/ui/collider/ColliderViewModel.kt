@@ -129,6 +129,27 @@ class ColliderViewModel(
         landedNonce.value += 1
     }
 
+    /**
+     * Reroll just one wheel of the current collision -> tap a pick, "randomize
+     * this one". Same as [mutate] but always aimed at a specific wheel.
+     */
+    fun randomizePick(wheelName: String) = mutate(wheelName)
+
+    /**
+     * Replace one pick with the user's own text, leaving the rest of the
+     * collision untouched. This is a one-off override on the current result; it
+     * does not change the wheel's entries.
+     */
+    fun setCustomPick(wheelName: String, text: String) {
+        val clean = text.trim()
+        if (clean.isEmpty() || current.value.isEmpty()) return
+        pushHistory(current.value)
+        current.value = current.value.map { pick ->
+            if (pick.wheelName == wheelName) pick.copy(text = clean) else pick
+        }
+        landedNonce.value += 1
+    }
+
     /** Toggle a wheel's lock. Locked wheels keep their pick on the next roll. */
     fun toggleLock(wheelName: String) {
         locked.value = locked.value.toMutableSet().apply {

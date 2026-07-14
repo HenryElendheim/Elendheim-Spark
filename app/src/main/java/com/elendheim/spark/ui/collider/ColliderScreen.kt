@@ -24,12 +24,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.Icon
@@ -87,7 +87,6 @@ fun ColliderRoute() {
         state = state,
         onSelectDeck = vm::selectDeck,
         onCollide = vm::collide,
-        onMutate = { vm.mutate() },
         onToggleLock = vm::toggleLock,
         onSave = {
             vm.saveCurrent(System.currentTimeMillis()) {
@@ -96,7 +95,9 @@ fun ColliderRoute() {
         },
         onSurprise = vm::surpriseMe,
         onRestoreHistory = vm::restoreFromHistory,
-        onSetMixLimit = vm::setMixLimit
+        onSetMixLimit = vm::setMixLimit,
+        onRandomizePick = vm::randomizePick,
+        onCustomPick = vm::setCustomPick
     )
 }
 
@@ -113,12 +114,13 @@ fun ColliderScreen(
     state: ColliderUiState,
     onSelectDeck: (String) -> Unit,
     onCollide: () -> Unit,
-    onMutate: () -> Unit,
     onToggleLock: (String) -> Unit,
     onSave: () -> Unit,
     onSurprise: () -> Unit,
     onRestoreHistory: (List<Pick>) -> Unit,
-    onSetMixLimit: (Int) -> Unit
+    onSetMixLimit: (Int) -> Unit,
+    onRandomizePick: (String) -> Unit,
+    onCustomPick: (String, String) -> Unit
 ) {
     val palette = LocalSparkPalette.current
     val settings = state.settings
@@ -128,10 +130,11 @@ fun ColliderScreen(
     // Larger-tap-target toggle grows the interactive controls for motor accessibility.
     val touch = if (settings.largerTapTargets) 64.dp else 48.dp
 
-    // Overlays: the deck picker and the recents list are opened on demand so the
-    // main screen stays calm and uncluttered.
+    // Overlays: the deck picker, the recents list, and the per-pick editor are
+    // opened on demand so the main screen stays calm and uncluttered.
     var showDeckPicker by remember { mutableStateOf(false) }
     var showRecents by remember { mutableStateOf(false) }
+    var editingPick by remember { mutableStateOf<Pick?>(null) }
 
     val totalWheels = state.selectedDeck?.wheelIds?.size ?: 0
 
@@ -148,7 +151,7 @@ fun ColliderScreen(
             .background(palette.background)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // --- Top row: current deck (tap to switch) + how many to mix ---
+        // --- Top row: current deck (tap to switch) + the random-deck dice ---
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -159,6 +162,24 @@ fun ColliderScreen(
                 modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.size(10.dp))
+            // The dice jumps to a random deck and rolls it -> a clear "shuffle
+            // decks" control, up in the top-right where you expect it.
+            DiceButton(
+                enabled = state.decks.size > 1,
+                onClick = onSurprise
+            )
+        }
+
+        Spacer(Modifier.size(10.dp))
+
+        // --- How many wheels to mix at once ---
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Spacer(Modifier.weight(1f))
+            Text("Ideas per mix", color = palette.onSurfaceMuted, fontSize = 13.sp)
+            Spacer(Modifier.size(8.dp))
             MixStepper(
                 active = state.wheels.size,
                 total = totalWheels,
@@ -202,24 +223,17 @@ fun ColliderScreen(
                 settings = settings,
                 colorFor = { name -> resultColor(name, state.wheels, settings.colorblindPalette, palette.accent) },
                 onText = palette.onBackground,
-                muted = palette.onSurfaceMuted
+                muted = palette.onSurfaceMuted,
+                onPickTap = { editingPick = it }
             )
         }
 
-        // --- The controls ---
+        // --- The controls: save on the left, recents on the right ---
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Mutate: reroll one wheel only.
-            SecondaryAction(
-                icon = Icons.Outlined.AutoAwesome,
-                description = "Mutate: reroll one wheel only",
-                enabled = state.current.isNotEmpty(),
-                touch = touch,
-                onClick = onMutate
-            )
             // Save to vault.
             SecondaryAction(
                 icon = Icons.Outlined.BookmarkAdd,
@@ -230,14 +244,6 @@ fun ColliderScreen(
                     if (settings.haptics) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     onSave()
                 }
-            )
-            // Surprise me: random deck + collide.
-            SecondaryAction(
-                icon = Icons.Filled.Casino,
-                description = "Surprise me: random deck and collide",
-                enabled = state.decks.isNotEmpty(),
-                touch = touch,
-                onClick = onSurprise
             )
 
             Spacer(Modifier.weight(1f))
@@ -278,6 +284,15 @@ fun ColliderScreen(
             colorFor = { name -> resultColor(name, state.wheels, settings.colorblindPalette, palette.accent) },
             onRestore = { onRestoreHistory(it); showRecents = false },
             onDismiss = { showRecents = false }
+        )
+    }
+    editingPick?.let { pick ->
+        PickActionDialog(
+            pick = pick,
+            accent = resultColor(pick.wheelName, state.wheels, settings.colorblindPalette, palette.accent),
+            onRandomize = { onRandomizePick(pick.wheelName); editingPick = null },
+            onCustom = { text -> onCustomPick(pick.wheelName, text); editingPick = null },
+            onDismiss = { editingPick = null }
         )
     }
 }
@@ -491,7 +506,8 @@ private fun ResultDisplay(
     settings: SparkSettings,
     colorFor: (String) -> Color,
     onText: Color,
-    muted: Color
+    muted: Color,
+    onPickTap: (Pick) -> Unit
 ) {
     if (picks.isEmpty()) {
         Text(
@@ -525,7 +541,15 @@ private fun ResultDisplay(
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         picks.forEach { pick ->
-            Column(modifier = Modifier.fillMaxWidth()) {
+            // Tapping a pick opens the editor: choose your own, or randomise it.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onPickTap(pick) }
+                    .padding(vertical = 4.dp)
+                    .semantics { contentDescription = "${pick.wheelName}: ${pick.text}. Tap to change this one." }
+            ) {
                 // Colour is always shown (a dot); the name label is optional.
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -654,7 +678,118 @@ private fun RecentsDialog(
     }
 }
 
-/** A round secondary action button (mutate, save, surprise). */
+/**
+ * The random-deck dice. Sits top-right and, on tap, jumps to a random deck and
+ * rolls it. Tinted with the accent and lightly outlined so it reads clearly as
+ * "shuffle to another deck" rather than just another roll button.
+ */
+@Composable
+private fun DiceButton(enabled: Boolean, onClick: () -> Unit) {
+    val palette = LocalSparkPalette.current
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(palette.surfaceElevated)
+            .border(1.5.dp, palette.accent, CircleShape)
+            .alpha(if (enabled) 1f else 0.4f)
+            .clickable(enabled = enabled) { onClick() }
+            .semantics { contentDescription = "Random deck: jump to a random deck and collide" },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Casino,
+            contentDescription = null,
+            tint = palette.accent,
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
+
+/**
+ * The per-pick editor. Tap any line of the result to open this: reroll just that
+ * one wheel, or type your own value in its place. This replaces the old blanket
+ * mutate button with something you aim precisely.
+ */
+@Composable
+private fun PickActionDialog(
+    pick: Pick,
+    accent: Color,
+    onRandomize: () -> Unit,
+    onCustom: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val palette = LocalSparkPalette.current
+    var custom by remember { mutableStateOf(false) }
+    var text by remember { mutableStateOf(pick.text) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(palette.surface)
+                .padding(20.dp)
+        ) {
+            // Which wheel, and its current value.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.size(10.dp).clip(CircleShape).background(accent))
+                Text(pick.wheelName, color = accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.size(6.dp))
+            Text(pick.text, color = palette.onBackground, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.size(16.dp))
+
+            if (!custom) {
+                // Two clear choices.
+                PickOptionRow(icon = Icons.Filled.Casino, label = "Randomize this one", onClick = onRandomize)
+                Spacer(Modifier.size(4.dp))
+                PickOptionRow(icon = Icons.Filled.Edit, label = "Enter your own", onClick = { text = pick.text; custom = true })
+                Spacer(Modifier.size(12.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("Cancel", color = palette.onSurfaceMuted) }
+                }
+            } else {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    label = { Text("Your own value") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentDescription = "Type your own value for ${pick.wheelName}" }
+                )
+                Spacer(Modifier.size(12.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = { custom = false }) { Text("Back", color = palette.onSurfaceMuted) }
+                    TextButton(onClick = { onCustom(text) }, enabled = text.isNotBlank()) { Text("Use it", color = palette.accent) }
+                }
+            }
+        }
+    }
+}
+
+/** One tappable option row inside the per-pick editor. */
+@Composable
+private fun PickOptionRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    val palette = LocalSparkPalette.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(palette.surfaceElevated)
+            .clickable { onClick() }
+            .padding(14.dp)
+            .semantics { contentDescription = label }
+    ) {
+        Icon(icon, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp))
+        Text(label, color = palette.onBackground, fontSize = 16.sp)
+    }
+}
+
+/** A round secondary action button (save). */
 @Composable
 private fun SecondaryAction(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
