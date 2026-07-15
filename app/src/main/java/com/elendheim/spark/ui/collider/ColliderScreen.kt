@@ -22,20 +22,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Casino
-import androidx.compose.material.icons.filled.ChangeHistory
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Square
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.window.Dialog
@@ -75,22 +72,11 @@ import com.elendheim.spark.model.Wheel
 import com.elendheim.spark.settings.SparkSettings
 import com.elendheim.spark.ui.common.asInline
 import com.elendheim.spark.ui.common.asSpoken
-import com.elendheim.spark.ui.common.toColorOrDefault
+import com.elendheim.spark.ui.common.WheelGlyph
+import com.elendheim.spark.ui.common.glyphColor
 import com.elendheim.spark.ui.theme.LocalSparkPalette
-import com.elendheim.spark.ui.theme.colorblindFriendlyWheelColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-// Distinct shapes used in colourblind mode, so a wheel is told apart by its
-// symbol, not only its colour.
-private val wheelSymbols = listOf(
-    Icons.Filled.Circle,
-    Icons.Filled.Square,
-    Icons.Filled.Star,
-    Icons.Filled.Favorite,
-    Icons.Filled.Bolt,
-    Icons.Filled.ChangeHistory
-)
 
 /**
  * Wires the randomize screen to its view-model and shows a small confirmation
@@ -102,8 +88,14 @@ fun ColliderRoute() {
     val state by vm.uiState.collectAsState()
     val context = LocalContext.current
 
+    // Only play the slot animation for a roll we have not animated yet, so it
+    // does not replay when you come back from another tab.
+    val animateRoll = state.landedNonce != 0L && state.landedNonce != vm.lastAnimatedNonce
+    LaunchedEffect(state.landedNonce) { vm.lastAnimatedNonce = state.landedNonce }
+
     ColliderScreen(
         state = state,
+        animateRoll = animateRoll,
         onSelectDeck = vm::selectDeck,
         onCollide = vm::collide,
         onToggleExclude = vm::toggleExclude,
@@ -128,6 +120,7 @@ fun ColliderRoute() {
 @Composable
 fun ColliderScreen(
     state: ColliderUiState,
+    animateRoll: Boolean,
     onSelectDeck: (String) -> Unit,
     onCollide: () -> Unit,
     onToggleExclude: (String) -> Unit,
@@ -148,7 +141,12 @@ fun ColliderScreen(
 
     var showDeckPicker by remember { mutableStateOf(false) }
     var showRecents by remember { mutableStateOf(false) }
+    var showWheels by remember { mutableStateOf(false) }
     var editingPick by remember { mutableStateOf<Pick?>(null) }
+
+    // Above this many wheels the chips get unwieldy, so we tuck them behind a
+    // "Wheels" button with search instead.
+    val inlineChipLimit = 8
 
     // Dice animation: while rolling, the deck name flickers through random decks
     // and the real answer is not shown until it settles.
@@ -206,8 +204,11 @@ fun ColliderScreen(
 
         Spacer(Modifier.size(14.dp))
 
-        // --- Wheel chips: tap to switch a wheel off (it leaves the mix) ---
-        if (state.wheels.isNotEmpty()) {
+        // --- Wheels: chips inline, or (for big decks) a searchable button ---
+        if (state.wheels.size > inlineChipLimit) {
+            val onCount = state.wheels.count { it.name !in state.excludedWheelNames }
+            WheelsButton(onCount = onCount, total = state.wheels.size) { showWheels = true }
+        } else if (state.wheels.isNotEmpty()) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 state.wheels.forEachIndexed { index, wheel ->
                     WheelChip(
@@ -235,7 +236,9 @@ fun ColliderScreen(
                 picks = state.current,
                 wheels = state.wheels,
                 landedNonce = state.landedNonce,
+                animateRoll = animateRoll,
                 settings = settings,
+                accent = palette.accent,
                 onText = palette.onBackground,
                 muted = palette.onSurfaceMuted,
                 onPickTap = { editingPick = it }
@@ -294,6 +297,15 @@ fun ColliderScreen(
             onRestore = { onRestoreHistory(it); showRecents = false },
             onClear = { onClearHistory(); showRecents = false },
             onDismiss = { showRecents = false }
+        )
+    }
+    if (showWheels) {
+        WheelsDialog(
+            wheels = state.wheels,
+            excluded = state.excludedWheelNames,
+            colorblind = settings.colorblindPalette,
+            onToggle = onToggleExclude,
+            onDismiss = { showWheels = false }
         )
     }
     editingPick?.let { pick ->
@@ -428,7 +440,9 @@ private fun ResultDisplay(
     picks: List<Pick>,
     wheels: List<Wheel>,
     landedNonce: Long,
+    animateRoll: Boolean,
     settings: SparkSettings,
+    accent: Color,
     onText: Color,
     muted: Color,
     onPickTap: (Pick) -> Unit
@@ -478,9 +492,11 @@ private fun ResultDisplay(
                         finalText = pick.text,
                         candidates = candidates,
                         landedNonce = landedNonce,
+                        animate = animateRoll,
                         reduceMotion = settings.reduceMotion,
                         staggerIndex = lineIndex,
-                        color = onText
+                        color = onText,
+                        glowColor = accent
                     )
                 }
             }
@@ -497,16 +513,22 @@ private fun SlotPickText(
     finalText: String,
     candidates: List<String>,
     landedNonce: Long,
+    animate: Boolean,
     reduceMotion: Boolean,
     staggerIndex: Int,
-    color: Color
+    color: Color,
+    glowColor: Color
 ) {
     var shown by remember { mutableStateOf(finalText) }
     val scale = remember { Animatable(1f) }
+    // 1f = full glow (bright), 0f = settled. Flashes briefly when a line lands.
+    val glow = remember { Animatable(0f) }
 
     LaunchedEffect(landedNonce, finalText) {
-        if (reduceMotion || candidates.size <= 1) {
+        if (!animate || reduceMotion || candidates.size <= 1) {
             shown = finalText
+            scale.snapTo(1f)
+            glow.snapTo(0f)
             return@LaunchedEffect
         }
         // Lines settle one after another for a satisfying cascade.
@@ -516,38 +538,24 @@ private fun SlotPickText(
             delay(45L + i * 14L)   // ease-out: slower toward the end
         }
         shown = finalText
+        // The "click": a small bounce plus a split-second glow.
         scale.snapTo(1.12f)
+        glow.snapTo(1f)
         scale.animateTo(1f, animationSpec = tween(160))
+        glow.animateTo(0f, animationSpec = tween(320))
     }
+
+    // Glow brightens the text toward white for an instant as it lands.
+    val shownColor = androidx.compose.ui.graphics.lerp(color, glowColor, glow.value * 0.85f)
 
     Text(
         text = shown,
-        color = color,
+        color = shownColor,
         fontSize = 26.sp,
         fontWeight = FontWeight.Bold,
         lineHeight = 30.sp,
         modifier = Modifier.scale(scale.value)
     )
-}
-
-/** A colour dot, or a distinct symbol in colourblind mode. */
-@Composable
-private fun WheelGlyph(index: Int, colorblind: Boolean, hex: String, sizeDp: Int) {
-    if (colorblind) {
-        Icon(
-            imageVector = wheelSymbols[index % wheelSymbols.size],
-            contentDescription = null,
-            tint = glyphColor(index, true, hex),
-            modifier = Modifier.size(sizeDp.dp)
-        )
-    } else {
-        Box(
-            Modifier
-                .size(sizeDp.dp)
-                .clip(CircleShape)
-                .background(hex.toColorOrDefault(Color(0xFFE0555A)))
-        )
-    }
 }
 
 /** A searchable, scrollable deck chooser. */
@@ -803,7 +811,10 @@ private fun SecondaryAction(
     }
 }
 
-/** The signature soft-red RANDOMIZE button. */
+/**
+ * The RANDOMIZE button. Dark panel with a strong accent border and bold RED
+ * label -> the text reads clearly in the brand colour instead of near-black.
+ */
 @Composable
 private fun CollideButton(
     label: String,
@@ -813,35 +824,135 @@ private fun CollideButton(
     tall: Boolean,
     onClick: () -> Unit
 ) {
+    val palette = LocalSparkPalette.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = if (tall) 72.dp else 60.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(if (enabled) accent else accentPressed)
+            .background(palette.surfaceElevated)
+            .border(2.dp, if (enabled) accent else accentPressed, RoundedCornerShape(16.dp))
             .alpha(if (enabled) 1f else 0.5f)
             .clickable(enabled = enabled) { onClick() }
             .padding(vertical = 18.dp)
             .semantics { contentDescription = "$label. Randomize the wheels into a new idea." },
         contentAlignment = Alignment.Center
     ) {
-        Text(text = label, color = Color(0xFF1A0B0C), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(text = label, color = accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
     }
 }
 
-// --- Colour / symbol helpers ---
+/** A compact button that opens the searchable wheels list (for big decks). */
+@Composable
+private fun WheelsButton(onCount: Int, total: Int, onClick: () -> Unit) {
+    val palette = LocalSparkPalette.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(palette.surface)
+            .border(1.dp, palette.outline, RoundedCornerShape(14.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .semantics { contentDescription = "Wheels: $onCount of $total on. Tap to choose which wheels are in the mix." }
+    ) {
+        Icon(Icons.Filled.Tune, contentDescription = null, tint = palette.onBackground, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.size(10.dp))
+        Text("Wheels", color = palette.onBackground, fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+        Text("$onCount / $total on", color = palette.onSurfaceMuted, fontSize = 13.sp)
+    }
+}
+
+/**
+ * The wheels chooser for big decks: search (case-insensitive) and switch each
+ * wheel on or off. Off wheels leave the mix, same as tapping a chip.
+ */
+@Composable
+private fun WheelsDialog(
+    wheels: List<Wheel>,
+    excluded: Set<String>,
+    colorblind: Boolean,
+    onToggle: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val palette = LocalSparkPalette.current
+    var query by remember { mutableStateOf("") }
+    val filtered = wheels.withIndex().filter { it.value.name.contains(query.trim(), ignoreCase = true) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(palette.surface)
+                .padding(20.dp)
+        ) {
+            Text("Wheels", color = palette.onBackground, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.size(4.dp))
+            Text("Switch wheels on or off for the mix.", color = palette.onSurfaceMuted, fontSize = 13.sp)
+            Spacer(Modifier.size(12.dp))
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                placeholder = { Text("Search wheels") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "Search wheels" }
+            )
+            Spacer(Modifier.size(10.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 380.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (filtered.isEmpty()) {
+                    Text("No wheels match.", color = palette.onSurfaceMuted, fontSize = 14.sp, modifier = Modifier.padding(8.dp))
+                }
+                filtered.forEach { (index, wheel) ->
+                    val on = wheel.name !in excluded
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onToggle(wheel.name) }
+                            .padding(vertical = 10.dp, horizontal = 6.dp)
+                            .semantics { contentDescription = if (on) "${wheel.name}, on. Tap to switch off." else "${wheel.name}, off. Tap to switch on." }
+                    ) {
+                        WheelGlyph(index = index, colorblind = colorblind, hex = wheel.colorHex, sizeDp = 12)
+                        Text(
+                            text = wheel.name,
+                            color = if (on) palette.onBackground else palette.onSurfaceMuted,
+                            fontSize = 16.sp,
+                            textDecoration = if (on) TextDecoration.None else TextDecoration.LineThrough,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Switch(
+                            checked = on,
+                            onCheckedChange = { onToggle(wheel.name) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = palette.onBackground,
+                                checkedTrackColor = palette.accent,
+                                uncheckedTrackColor = palette.surfaceElevated
+                            )
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.size(12.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Done", color = palette.accent) }
+            }
+        }
+    }
+}
 
 /** The stored colour hex for a wheel by name (falls back to the brand red). */
 private fun candidateColor(wheels: List<Wheel>, name: String): String =
     wheels.firstOrNull { it.name == name }?.colorHex ?: "#E0555A"
-
-/**
- * The tint for a glyph. In colourblind mode we use the higher-separation palette
- * by position; otherwise the wheel's own colour.
- */
-private fun glyphColor(index: Int, colorblind: Boolean, hex: String): Color =
-    if (colorblind) {
-        colorblindFriendlyWheelColors[index % colorblindFriendlyWheelColors.size].toColorOrDefault(Color(0xFFE0555A))
-    } else {
-        hex.toColorOrDefault(Color(0xFFE0555A))
-    }

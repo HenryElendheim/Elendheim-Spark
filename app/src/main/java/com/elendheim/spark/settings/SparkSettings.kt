@@ -23,7 +23,11 @@ data class SparkSettings(
     val lineByLineResult: Boolean = false,   // stack picks one per line instead of A x B x C
 
     // Content & behaviour
-    val weightingEnabled: Boolean = false,   // honour per-entry weights globally
+    val weightingEnabled: Boolean = false,   // unused; kept for backwards compatibility
     val defaultDeckId: String? = null,       // which deck opens on launch (null = first deck)
-    val mixLimit: Int = 0                    // how many wheels to mix at once; 0 = all of them
+    val mixLimit: Int = 0,                   // unused; kept for backwards compatibility
+
+    // Limits you can tighten to keep things manageable.
+    val maxWheelsPerDeck: Int = 15,          // hard ceiling 15; lower it here if you like
+    val maxEntriesPerWheel: Int = 250        // hard ceiling 250; lower it here if you like
 )

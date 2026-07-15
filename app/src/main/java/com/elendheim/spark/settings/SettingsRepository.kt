@@ -35,6 +35,8 @@ class SettingsRepository(private val context: Context) {
         val weighting = booleanPreferencesKey("weighting_enabled")
         val defaultDeck = stringPreferencesKey("default_deck_id")
         val mixLimit = intPreferencesKey("mix_limit")
+        val maxWheels = intPreferencesKey("max_wheels_per_deck")
+        val maxEntries = intPreferencesKey("max_entries_per_wheel")
     }
 
     /** The live settings. Falls back to sensible defaults for anything unset. */
@@ -52,7 +54,9 @@ class SettingsRepository(private val context: Context) {
             lineByLineResult = p[Keys.lineByLine] ?: d.lineByLineResult,
             weightingEnabled = p[Keys.weighting] ?: d.weightingEnabled,
             defaultDeckId = p[Keys.defaultDeck] ?: d.defaultDeckId,
-            mixLimit = p[Keys.mixLimit] ?: d.mixLimit
+            mixLimit = p[Keys.mixLimit] ?: d.mixLimit,
+            maxWheelsPerDeck = (p[Keys.maxWheels] ?: d.maxWheelsPerDeck).coerceIn(1, 15),
+            maxEntriesPerWheel = (p[Keys.maxEntries] ?: d.maxEntriesPerWheel).coerceIn(10, 250)
         )
     }
 
@@ -68,6 +72,8 @@ class SettingsRepository(private val context: Context) {
     suspend fun setWeightingEnabled(value: Boolean) = edit { it[Keys.weighting] = value }
 
     suspend fun setMixLimit(value: Int) = edit { it[Keys.mixLimit] = value }
+    suspend fun setMaxWheelsPerDeck(value: Int) = edit { it[Keys.maxWheels] = value.coerceIn(1, 15) }
+    suspend fun setMaxEntriesPerWheel(value: Int) = edit { it[Keys.maxEntries] = value.coerceIn(10, 250) }
 
     suspend fun setDefaultDeckId(value: String?) = context.dataStore.edit { p ->
         if (value == null) p.remove(Keys.defaultDeck) else p[Keys.defaultDeck] = value

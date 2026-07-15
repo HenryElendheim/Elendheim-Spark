@@ -64,8 +64,12 @@ class VaultViewModel(private val repository: SparkRepository) : ViewModel() {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VaultUiState())
 
     fun setQuery(value: String) { query.value = value }
-    fun setDeckFilter(deckId: String?) { deckFilter.value = deckId }
-    fun toggleFavoritesOnly() { favoritesOnly.value = !favoritesOnly.value }
+
+    // The filters are mutually exclusive: choosing one clears the others, so you
+    // only ever see the single view you picked.
+    fun selectAll() { deckFilter.value = null; favoritesOnly.value = false }
+    fun selectFavorites() { favoritesOnly.value = true; deckFilter.value = null }
+    fun setDeckFilter(deckId: String?) { deckFilter.value = deckId; favoritesOnly.value = false }
 
     fun toggleFavorite(item: SavedCollision) = viewModelScope.launch {
         repository.updateCollision(item.copy(favorite = !item.favorite))

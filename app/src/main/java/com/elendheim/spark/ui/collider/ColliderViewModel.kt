@@ -51,6 +51,11 @@ class ColliderViewModel(
 
     private val rng: Random = Random.Default
 
+    // The last roll we have already played the slot animation for. Survives
+    // leaving and returning to the screen, so the animation does not replay when
+    // you come back from another tab.
+    var lastAnimatedNonce: Long = 0L
+
     // Transient, user-driven state.
     private val selectedDeckId = MutableStateFlow<String?>(null)
     private val current = MutableStateFlow<List<Pick>>(emptyList())

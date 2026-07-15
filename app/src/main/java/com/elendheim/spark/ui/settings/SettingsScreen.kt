@@ -90,9 +90,9 @@ fun SettingsRoute() {
             setLargerTargets = vm::setLargerTargets,
             setHaptics = vm::setHaptics,
             setAnnounce = vm::setAnnounce,
-            setLineByLine = vm::setLineByLine,
-            setWeighting = vm::setWeighting,
-            setDefaultDeck = vm::setDefaultDeck
+            setDefaultDeck = vm::setDefaultDeck,
+            setMaxWheels = vm::setMaxWheels,
+            setMaxEntries = vm::setMaxEntries
         )
     )
 }
@@ -107,9 +107,9 @@ data class SettingsCallbacks(
     val setLargerTargets: (Boolean) -> Unit,
     val setHaptics: (Boolean) -> Unit,
     val setAnnounce: (Boolean) -> Unit,
-    val setLineByLine: (Boolean) -> Unit,
-    val setWeighting: (Boolean) -> Unit,
-    val setDefaultDeck: (String?) -> Unit
+    val setDefaultDeck: (String?) -> Unit,
+    val setMaxWheels: (Int) -> Unit,
+    val setMaxEntries: (Int) -> Unit
 )
 
 /** The full, grouped settings menu. Scrolls; every control is labelled. */
@@ -149,18 +149,31 @@ fun SettingsScreen(
                 )
             }
             SwitchRow("High contrast", "Brighter text and firmer borders.", s.highContrast, callbacks.setHighContrast)
-            SwitchRow("Reduce motion", "Instant reveal, no collide animation.", s.reduceMotion, callbacks.setReduceMotion)
-            SwitchRow("Colourblind-friendly colours", "Higher-separation wheel colours.", s.colorblindPalette, callbacks.setColorblind)
+            SwitchRow("Reduce motion", "Instant reveal, no roll animation.", s.reduceMotion, callbacks.setReduceMotion)
+            SwitchRow("Colourblind-friendly", "Distinct symbols instead of relying on colour.", s.colorblindPalette, callbacks.setColorblind)
             SwitchRow("Always show wheel labels", "Never rely on colour alone.", s.showWheelLabels, callbacks.setShowLabels)
             SwitchRow("Larger tap targets", "Grow buttons and toggles.", s.largerTapTargets, callbacks.setLargerTargets)
-            SwitchRow("Haptics", "Vibrate on collide and save.", s.haptics, callbacks.setHaptics)
+            SwitchRow("Haptics", "Vibrate on roll and save.", s.haptics, callbacks.setHaptics)
             SwitchRow("Announce result", "Speak the new idea for screen readers.", s.announceResult, callbacks.setAnnounce)
         }
 
         // --- Your ideas & content ---
         Group("Your ideas & content") {
-            SwitchRow("Use entry weighting", "Honour per-entry weights when rolling.", s.weightingEnabled, callbacks.setWeighting)
             ActionRow("Default deck", currentDefaultDeckName(state)) { showDefaultDeck = true }
+            SliderRow(
+                label = "Max wheels per deck",
+                value = s.maxWheelsPerDeck,
+                range = 1f..15f,
+                steps = 13,
+                onChange = callbacks.setMaxWheels
+            )
+            SliderRow(
+                label = "Max entries per wheel",
+                value = s.maxEntriesPerWheel,
+                range = 10f..250f,
+                steps = 0,
+                onChange = callbacks.setMaxEntries
+            )
         }
 
         // --- Data ---
@@ -248,6 +261,30 @@ private fun SwitchRow(label: String, desc: String, checked: Boolean, onCheckedCh
                 checkedTrackColor = palette.accent,
                 uncheckedTrackColor = palette.surfaceElevated
             )
+        )
+    }
+}
+
+/** A labelled slider that shows its current whole-number value. */
+@Composable
+private fun SliderRow(
+    label: String,
+    value: Int,
+    range: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    onChange: (Int) -> Unit
+) {
+    val palette = LocalSparkPalette.current
+    Column(modifier = Modifier.semantics { contentDescription = "$label, currently $value" }) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, color = palette.onBackground, fontSize = 15.sp, modifier = Modifier.weight(1f))
+            Text("$value", color = palette.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Slider(
+            value = value.toFloat().coerceIn(range.start, range.endInclusive),
+            onValueChange = { onChange(it.toInt()) },
+            valueRange = range,
+            steps = steps
         )
     }
 }

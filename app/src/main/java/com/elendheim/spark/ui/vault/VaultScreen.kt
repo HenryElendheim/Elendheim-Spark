@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,6 +27,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
@@ -66,8 +69,9 @@ fun VaultRoute() {
     VaultScreen(
         state = state,
         onQuery = vm::setQuery,
+        onSelectAll = vm::selectAll,
+        onSelectFavorites = vm::selectFavorites,
         onDeckFilter = vm::setDeckFilter,
-        onToggleFavoritesOnly = vm::toggleFavoritesOnly,
         onOpen = { editing = it }
     )
 
@@ -95,11 +99,13 @@ fun VaultRoute() {
 fun VaultScreen(
     state: VaultUiState,
     onQuery: (String) -> Unit,
+    onSelectAll: () -> Unit,
+    onSelectFavorites: () -> Unit,
     onDeckFilter: (String?) -> Unit,
-    onToggleFavoritesOnly: () -> Unit,
     onOpen: (SavedCollision) -> Unit
 ) {
     val palette = LocalSparkPalette.current
+    var showDecks by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -124,19 +130,22 @@ fun VaultScreen(
 
         Spacer(Modifier.size(10.dp))
 
-        // Filters: deck chips + favourites toggle.
+        // Filters: All, Favorites, and a Decks button that opens a searchable
+        // deck list. Only one filter is active at a time.
+        val selectedDeckName = state.decks.firstOrNull { it.id == state.deckFilter }?.name
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Favorites sits right after All, then the decks.
-            FilterChip("All", state.deckFilter == null && !state.favoritesOnly) { onDeckFilter(null) }
-            FilterChip("Favorites", state.favoritesOnly) { onToggleFavoritesOnly() }
-            state.decks.forEach { d ->
-                FilterChip(d.name, state.deckFilter == d.id) { onDeckFilter(d.id) }
-            }
+            FilterChip("All", state.deckFilter == null && !state.favoritesOnly) { onSelectAll() }
+            FilterChip("Favorites", state.favoritesOnly) { onSelectFavorites() }
+            FilterChip(
+                label = selectedDeckName ?: "Decks",
+                selected = state.deckFilter != null,
+                trailingChevron = true
+            ) { showDecks = true }
         }
 
         Spacer(Modifier.size(12.dp))
@@ -155,15 +164,22 @@ fun VaultScreen(
             }
         }
     }
+
+    if (showDecks) {
+        DecksFilterDialog(
+            decks = state.decks.map { it.id to it.name },
+            selectedId = state.deckFilter,
+            onPick = { onDeckFilter(it); showDecks = false },
+            onDismiss = { showDecks = false }
+        )
+    }
 }
 
 @Composable
-private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun FilterChip(label: String, selected: Boolean, trailingChevron: Boolean = false, onClick: () -> Unit) {
     val palette = LocalSparkPalette.current
-    Text(
-        text = label,
-        color = if (selected) palette.onBackground else palette.onSurfaceMuted,
-        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .clip(RoundedCornerShape(20.dp))
             .background(if (selected) palette.surfaceElevated else Color.Transparent)
@@ -171,7 +187,87 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
             .clickable { onClick() }
             .padding(horizontal = 14.dp, vertical = 7.dp)
             .semantics { contentDescription = if (selected) "$label filter, on" else "$label filter, off" }
-    )
+    ) {
+        Text(
+            text = label,
+            color = if (selected) palette.onBackground else palette.onSurfaceMuted,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+        )
+        if (trailingChevron) {
+            Spacer(Modifier.size(4.dp))
+            Icon(Icons.Filled.ExpandMore, contentDescription = null, tint = palette.onSurfaceMuted, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+/** A searchable deck list for filtering the vault. "All decks" clears the filter. */
+@Composable
+private fun DecksFilterDialog(
+    decks: List<Pair<String, String>>,
+    selectedId: String?,
+    onPick: (String?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val palette = LocalSparkPalette.current
+    var query by remember { mutableStateOf("") }
+    val filtered = decks.filter { it.second.contains(query.trim(), ignoreCase = true) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(palette.surface)
+                .padding(20.dp)
+        ) {
+            Text("Filter by deck", color = palette.onBackground, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.size(12.dp))
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                placeholder = { Text("Search decks") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "Search decks" }
+            )
+            Spacer(Modifier.size(10.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 340.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                DeckFilterRow("All decks", selectedId == null) { onPick(null) }
+                filtered.forEach { (id, name) ->
+                    DeckFilterRow(name, selectedId == id) { onPick(id) }
+                }
+                if (filtered.isEmpty()) {
+                    Text("No decks match.", color = palette.onSurfaceMuted, fontSize = 14.sp, modifier = Modifier.padding(8.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeckFilterRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    val palette = LocalSparkPalette.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (selected) palette.surfaceElevated else Color.Transparent)
+            .clickable { onClick() }
+            .padding(12.dp)
+            .semantics { contentDescription = if (selected) "$label, selected" else label }
+    ) {
+        Text(label, color = palette.onBackground, fontSize = 16.sp, modifier = Modifier.weight(1f))
+        if (selected) Icon(Icons.Filled.Check, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
+    }
 }
 
 @Composable

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -49,6 +50,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.elendheim.spark.model.Deck
 import com.elendheim.spark.model.Entry
 import com.elendheim.spark.model.Wheel
+import com.elendheim.spark.ui.common.WheelGlyph
 import com.elendheim.spark.ui.common.toColorOrDefault
 import com.elendheim.spark.ui.theme.LocalSparkPalette
 
@@ -75,12 +77,13 @@ fun EditorRoute() {
     when {
         openDeck != null && openWheel != null -> WheelDetail(
             wheel = openWheel,
+            maxEntries = state.maxEntries,
             onBack = { openWheelId = null },
             onRename = { vm.renameWheel(openWheel, it) },
             onRecolor = { vm.recolorWheel(openWheel, it) },
             onAddEntry = { text -> vm.addEntry(openWheel, text) },
             onBulkAdd = { vm.bulkAddEntries(openWheel, it) },
-            onEditEntry = { id, text, weight -> vm.editEntry(openWheel, id, text, weight) },
+            onEditEntry = { id, text -> vm.editEntry(openWheel, id, text) },
             onDeleteEntry = { vm.deleteEntry(openWheel, it) },
             onMoveEntry = { id, up -> vm.moveEntry(openWheel, id, up) }
         )
@@ -88,6 +91,8 @@ fun EditorRoute() {
         openDeck != null -> DeckDetail(
             deck = openDeck,
             wheels = openDeck.wheelIds.mapNotNull { state.wheelsById[it] },
+            colorblind = state.colorblind,
+            maxWheels = state.maxWheels,
             onBack = { openDeckId = null },
             onRenameDeck = { vm.renameDeck(openDeck, it) },
             onAddWheel = { vm.addWheel(openDeck, it) },
@@ -180,6 +185,8 @@ private fun DeckList(
 private fun DeckDetail(
     deck: Deck,
     wheels: List<Wheel>,
+    colorblind: Boolean,
+    maxWheels: Int,
     onBack: () -> Unit,
     onRenameDeck: (String) -> Unit,
     onAddWheel: (String) -> Unit,
@@ -191,6 +198,7 @@ private fun DeckDetail(
     var addingWheel by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<Wheel?>(null) }
+    val canAdd = wheels.size < maxWheels
 
     Column(
         modifier = Modifier
@@ -200,12 +208,17 @@ private fun DeckDetail(
     ) {
         BackHeader(title = deck.name, onBack = onBack, editLabel = "Rename deck") { renaming = true }
         Spacer(Modifier.size(4.dp))
-        Row {
-            TextButton(onClick = { addingWheel = true }) {
-                Icon(Icons.Filled.Add, contentDescription = null, tint = palette.accent)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { if (canAdd) addingWheel = true }, enabled = canAdd) {
+                Icon(Icons.Filled.Add, contentDescription = null, tint = if (canAdd) palette.accent else palette.onSurfaceMuted)
                 Spacer(Modifier.size(4.dp))
-                Text("Add wheel", color = palette.accent)
+                Text("Add wheel", color = if (canAdd) palette.accent else palette.onSurfaceMuted)
             }
+            Spacer(Modifier.weight(1f))
+            Text("${wheels.size} / $maxWheels", color = palette.onSurfaceMuted, fontSize = 13.sp)
+        }
+        if (!canAdd) {
+            Text("Wheel limit reached. Raise it in Settings.", color = palette.onSurfaceMuted, fontSize = 12.sp)
         }
         Spacer(Modifier.size(8.dp))
 
@@ -224,12 +237,7 @@ private fun DeckDetail(
                             .clickable { onOpenWheel(wheel.id) }
                             .padding(14.dp)
                     ) {
-                        Box(
-                            Modifier
-                                .size(14.dp)
-                                .clip(CircleShape)
-                                .background(wheel.colorHex.toColorOrDefault(palette.accent))
-                        )
+                        WheelGlyph(index = wheels.indexOf(wheel), colorblind = colorblind, hex = wheel.colorHex, sizeDp = 14)
                         Spacer(Modifier.size(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(wheel.name, color = palette.onBackground, fontSize = 17.sp, fontWeight = FontWeight.Medium)
@@ -277,20 +285,24 @@ private fun DeckDetail(
 @Composable
 private fun WheelDetail(
     wheel: Wheel,
+    maxEntries: Int,
     onBack: () -> Unit,
     onRename: (String) -> Unit,
     onRecolor: (String) -> Unit,
     onAddEntry: (String) -> Unit,
     onBulkAdd: (String) -> Unit,
-    onEditEntry: (String, String, Int) -> Unit,
+    onEditEntry: (String, String) -> Unit,
     onDeleteEntry: (String) -> Unit,
     onMoveEntry: (String, Boolean) -> Unit
 ) {
     val palette = LocalSparkPalette.current
     var quickAdd by remember { mutableStateOf("") }
+    var search by remember { mutableStateOf("") }
     var renaming by remember { mutableStateOf(false) }
     var bulk by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<Entry?>(null) }
+    val canAdd = wheel.entries.size < maxEntries
+    val shownEntries = wheel.entries.filter { it.text.contains(search.trim(), ignoreCase = true) }
 
     Column(
         modifier = Modifier
@@ -331,27 +343,50 @@ private fun WheelDetail(
                 value = quickAdd,
                 onValueChange = { quickAdd = it },
                 singleLine = true,
-                placeholder = { Text("Add an entry") },
+                enabled = canAdd,
+                placeholder = { Text(if (canAdd) "Add an entry" else "Entry limit reached") },
                 modifier = Modifier
                     .weight(1f)
                     .semantics { contentDescription = "New entry text" }
             )
             Spacer(Modifier.size(8.dp))
-            TextButton(onClick = {
-                if (quickAdd.isNotBlank()) { onAddEntry(quickAdd); quickAdd = "" }
-            }) { Text("Add", color = palette.accent) }
+            TextButton(
+                enabled = canAdd,
+                onClick = { if (quickAdd.isNotBlank()) { onAddEntry(quickAdd); quickAdd = "" } }
+            ) { Text("Add", color = if (canAdd) palette.accent else palette.onSurfaceMuted) }
         }
-        TextButton(onClick = { bulk = true }) {
-            Text("Bulk paste (one per line)", color = palette.accent)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { bulk = true }, enabled = canAdd) {
+                Text("Bulk paste (one per line)", color = if (canAdd) palette.accent else palette.onSurfaceMuted)
+            }
+            Spacer(Modifier.weight(1f))
+            Text("${wheel.entries.size} / $maxEntries", color = palette.onSurfaceMuted, fontSize = 13.sp)
         }
 
         Spacer(Modifier.size(8.dp))
 
+        // Search within this wheel's entries.
+        if (wheel.entries.isNotEmpty()) {
+            OutlinedTextField(
+                value = search,
+                onValueChange = { search = it },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                placeholder = { Text("Search entries") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "Search this wheel's entries" }
+            )
+            Spacer(Modifier.size(8.dp))
+        }
+
         if (wheel.entries.isEmpty()) {
             EmptyHint("No entries yet. Add a few, or bulk-paste a list.")
+        } else if (shownEntries.isEmpty()) {
+            EmptyHint("No entries match your search.")
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(wheel.entries, key = { it.id }) { entry ->
+                items(shownEntries, key = { it.id }) { entry ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -359,14 +394,9 @@ private fun WheelDetail(
                             .clip(RoundedCornerShape(12.dp))
                             .background(palette.surface)
                             .border(1.dp, palette.outline, RoundedCornerShape(12.dp))
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
                     ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(entry.text, color = palette.onBackground, fontSize = 15.sp)
-                            if (entry.weight != 1) {
-                                Text("weight ${entry.weight}", color = palette.onSurfaceMuted, fontSize = 12.sp)
-                            }
-                        }
+                        Text(entry.text, color = palette.onBackground, fontSize = 16.sp, modifier = Modifier.weight(1f))
                         IconAction(Icons.Filled.ArrowUpward, "Move ${entry.text} up") { onMoveEntry(entry.id, true) }
                         IconAction(Icons.Filled.ArrowDownward, "Move ${entry.text} down") { onMoveEntry(entry.id, false) }
                         IconAction(Icons.Filled.Edit, "Edit ${entry.text}") { editing = entry }
@@ -395,7 +425,7 @@ private fun WheelDetail(
     editing?.let { entry ->
         EditEntryDialog(
             entry = entry,
-            onConfirm = { text, weight -> onEditEntry(entry.id, text, weight); editing = null },
+            onConfirm = { text -> onEditEntry(entry.id, text); editing = null },
             onDismiss = { editing = null }
         )
     }
@@ -514,10 +544,9 @@ private fun BulkAddDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun EditEntryDialog(entry: Entry, onConfirm: (String, Int) -> Unit, onDismiss: () -> Unit) {
+private fun EditEntryDialog(entry: Entry, onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
     val palette = LocalSparkPalette.current
     var text by remember { mutableStateOf(entry.text) }
-    var weight by remember { mutableStateOf(entry.weight.toString()) }
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -529,18 +558,10 @@ private fun EditEntryDialog(entry: Entry, onConfirm: (String, Int) -> Unit, onDi
             Text("Edit entry", color = palette.onBackground, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.size(12.dp))
             OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("Text") }, modifier = Modifier.fillMaxWidth())
-            Spacer(Modifier.size(10.dp))
-            OutlinedTextField(
-                value = weight,
-                onValueChange = { weight = it.filter { c -> c.isDigit() } },
-                singleLine = true,
-                label = { Text("Weight (higher = more likely)") },
-                modifier = Modifier.fillMaxWidth()
-            )
             Spacer(Modifier.size(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("Cancel", color = palette.onSurfaceMuted) }
-                TextButton(onClick = { onConfirm(text, weight.toIntOrNull() ?: 1) }) { Text("Save", color = palette.accent) }
+                TextButton(onClick = { onConfirm(text) }, enabled = text.isNotBlank()) { Text("Save", color = palette.accent) }
             }
         }
     }

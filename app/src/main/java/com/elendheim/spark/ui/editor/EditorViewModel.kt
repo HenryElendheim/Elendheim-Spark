@@ -12,36 +12,58 @@ import com.elendheim.spark.data.newId
 import com.elendheim.spark.model.Deck
 import com.elendheim.spark.model.Entry
 import com.elendheim.spark.model.Wheel
+import com.elendheim.spark.settings.SettingsRepository
+import com.elendheim.spark.settings.SparkSettings
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** The editor's data: every deck and a lookup of every wheel by id. */
+/** The editor's data plus the current limits and colourblind flag. */
 data class EditorUiState(
     val decks: List<Deck> = emptyList(),
-    val wheelsById: Map<String, Wheel> = emptyMap()
+    val wheelsById: Map<String, Wheel> = emptyMap(),
+    val colorblind: Boolean = false,
+    val maxWheels: Int = 15,
+    val maxEntries: Int = 250
 )
 
 /**
  * Curation lives here: create and edit decks, wheels and entries. Wheels are
- * deck-specific (the simple model), so deleting a deck also deletes its wheels;
- * saved sparks are untouched because they snapshot their text.
+ * deck-specific, so deleting a deck also deletes its wheels; saved sparks are
+ * untouched because they snapshot their text.
  *
- * The palette used for new wheels rotates through a set of readable hues.
+ * The wheel and entry counts are capped by the limits in Settings (default
+ * ceilings 15 wheels and 250 entries), enforced here.
  */
-class EditorViewModel(private val repository: SparkRepository) : ViewModel() {
+class EditorViewModel(
+    private val repository: SparkRepository,
+    settingsRepo: SettingsRepository
+) : ViewModel() {
 
     private val newWheelPalette = listOf(
         "#E0555A", "#4FA6D9", "#E0A44F", "#6FBF73", "#B588E0", "#E07FB0"
     )
 
+    private var settingsSnapshot: SparkSettings = SparkSettings()
+
+    init {
+        viewModelScope.launch { settingsRepo.settings.collect { settingsSnapshot = it } }
+    }
+
     val uiState: StateFlow<EditorUiState> = combine(
         repository.decks,
-        repository.wheels
-    ) { decks, wheels ->
-        EditorUiState(decks = decks, wheelsById = wheels.associateBy { it.id })
+        repository.wheels,
+        settingsRepo.settings
+    ) { decks, wheels, settings ->
+        EditorUiState(
+            decks = decks,
+            wheelsById = wheels.associateBy { it.id },
+            colorblind = settings.colorblindPalette,
+            maxWheels = settings.maxWheelsPerDeck,
+            maxEntries = settings.maxEntriesPerWheel
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EditorUiState())
 
     // --- Decks ---
@@ -66,7 +88,9 @@ class EditorViewModel(private val repository: SparkRepository) : ViewModel() {
 
     // --- Wheels ---
 
+    /** Add a wheel, unless the deck is already at the wheel limit. */
     fun addWheel(deck: Deck, name: String) = viewModelScope.launch {
+        if (deck.wheelIds.size >= settingsSnapshot.maxWheelsPerDeck) return@launch
         val color = newWheelPalette[deck.wheelIds.size % newWheelPalette.size]
         val wheel = Wheel(
             id = newId(),
@@ -98,27 +122,33 @@ class EditorViewModel(private val repository: SparkRepository) : ViewModel() {
 
     // --- Entries ---
 
-    fun addEntry(wheel: Wheel, text: String, weight: Int = 1) = viewModelScope.launch {
+    /** Add one entry, unless the wheel is already at the entry limit. */
+    fun addEntry(wheel: Wheel, text: String) = viewModelScope.launch {
         val clean = text.trim()
-        if (clean.isEmpty()) return@launch
-        val entry = Entry(id = newId(), text = clean, weight = weight.coerceAtLeast(1))
+        if (clean.isEmpty() || wheel.entries.size >= settingsSnapshot.maxEntriesPerWheel) return@launch
+        val entry = Entry(id = newId(), text = clean)
         repository.upsertWheel(wheel.copy(entries = wheel.entries + entry))
     }
 
-    /** Paste a whole list, one entry per line, and add them all at once. */
+    /**
+     * Paste a whole list, one entry per line. Only as many as fit under the
+     * entry limit are added; the rest are dropped.
+     */
     fun bulkAddEntries(wheel: Wheel, multiline: String) = viewModelScope.launch {
+        val room = (settingsSnapshot.maxEntriesPerWheel - wheel.entries.size).coerceAtLeast(0)
+        if (room == 0) return@launch
         val newOnes = multiline.split("\n")
             .map { it.trim() }
             .filter { it.isNotEmpty() }
-            .map { Entry(id = newId(), text = it, weight = 1) }
+            .take(room)
+            .map { Entry(id = newId(), text = it) }
         if (newOnes.isEmpty()) return@launch
         repository.upsertWheel(wheel.copy(entries = wheel.entries + newOnes))
     }
 
-    fun editEntry(wheel: Wheel, entryId: String, text: String, weight: Int) = viewModelScope.launch {
+    fun editEntry(wheel: Wheel, entryId: String, text: String) = viewModelScope.launch {
         val updated = wheel.entries.map {
-            if (it.id == entryId) it.copy(text = text.trim().ifEmpty { it.text }, weight = weight.coerceAtLeast(1))
-            else it
+            if (it.id == entryId) it.copy(text = text.trim().ifEmpty { it.text }) else it
         }
         repository.upsertWheel(wheel.copy(entries = updated))
     }
@@ -150,7 +180,7 @@ class EditorViewModel(private val repository: SparkRepository) : ViewModel() {
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val app = this[APPLICATION_KEY] as SparkApp
-                EditorViewModel(app.container.repository)
+                EditorViewModel(app.container.repository, app.container.settings)
             }
         }
     }

@@ -63,6 +63,8 @@ class SettingsViewModel(
     fun setLineByLine(v: Boolean) = viewModelScope.launch { settingsRepo.setLineByLineResult(v) }
     fun setWeighting(v: Boolean) = viewModelScope.launch { settingsRepo.setWeightingEnabled(v) }
     fun setDefaultDeck(id: String?) = viewModelScope.launch { settingsRepo.setDefaultDeckId(id) }
+    fun setMaxWheels(v: Int) = viewModelScope.launch { settingsRepo.setMaxWheelsPerDeck(v) }
+    fun setMaxEntries(v: Int) = viewModelScope.launch { settingsRepo.setMaxEntriesPerWheel(v) }
 
     // --- Quick add into rotation (same power as the editor, one tap away) ---
 

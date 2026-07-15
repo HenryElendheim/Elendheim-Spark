@@ -4,6 +4,27 @@ All notable changes to Elendheim Spark are recorded here. Versions run from
 v1.0 upward; small changes bump the minor number (v1.1, v1.2...) and big ones
 step toward the next whole version.
 
+## v1.4 - Elendheim Spark
+
+More control, more accessibility, more polish.
+
+- **Red RANDOMIZE button** - the label now reads in the brand red instead of
+  near-black.
+- **Slot animation no longer replays** when you come back from another tab.
+- **Colourblind symbols in the editor too**, matching the randomize screen.
+- **Search entries inside a wheel** in the editor, and a cleaner, more readable
+  entry list.
+- **Wheels button for big decks** - past 8 wheels the chips move into a
+  searchable on/off list (case-insensitive).
+- **Limits you can tune** - up to 15 wheels per deck and 250 entries per wheel,
+  each lowerable with a slider in Settings.
+- **Glow on the roll click** - each line flashes for a split second as it lands.
+- **Dice no longer rolls for you** and its animation is tidier.
+- **Vault filters are single-select** - pick All, Favorites, or a deck and you
+  see exactly that. Decks now live behind a searchable "Decks" button.
+- Renamed the last "collide" wording to "roll", and **removed entry weighting**
+  (the field and its setting) since it went unused.
+
 ## v1.3 - Elendheim Spark
 
 A big accessibility and polish pass on the whole flow.
