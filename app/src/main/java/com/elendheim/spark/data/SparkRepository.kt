@@ -50,6 +50,23 @@ class SparkRepository(private val dao: SparkDao) {
     suspend fun saveCollision(collision: SavedCollision) =
         dao.upsertSavedCollision(collision.toEntity())
 
+    /**
+     * Save a fresh spark, assigning it the next sequential save number so the
+     * vault can label it (e.g. "App Ideas #4"). Snapshots the picks' text.
+     */
+    suspend fun saveNewCollision(deckId: String, picks: List<com.elendheim.spark.model.Pick>, now: Long) {
+        val number = dao.maxSaveNumber() + 1
+        dao.upsertSavedCollision(
+            SavedCollision(
+                id = newId(),
+                deckId = deckId,
+                picks = picks,
+                createdAt = now,
+                saveNumber = number
+            ).toEntity()
+        )
+    }
+
     suspend fun updateCollision(collision: SavedCollision) =
         dao.updateSavedCollision(collision.toEntity())
 

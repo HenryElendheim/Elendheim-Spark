@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -47,12 +46,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.elendheim.spark.branding.ElendheimSparkMark
 import com.elendheim.spark.data.ExportImport
-import com.elendheim.spark.model.Wheel
 import com.elendheim.spark.ui.theme.LocalSparkPalette
 
 /** Wires the settings screen to its view-model and the file pickers. */
 @Composable
-fun SettingsRoute(onOpenEditor: () -> Unit) {
+fun SettingsRoute() {
     val vm: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory)
     val state by vm.uiState.collectAsState()
     val context = LocalContext.current
@@ -77,14 +75,12 @@ fun SettingsRoute(onOpenEditor: () -> Unit) {
 
     SettingsScreen(
         state = state,
-        onOpenEditor = onOpenEditor,
         onExportJson = { createJson.launch(vm.suggestedFileName(System.currentTimeMillis())) },
         onExportMarkdown = { createMarkdown.launch("elendheim-spark-vault.md") },
         onImport = { mode ->
             pendingMode = mode
             openJson.launch(arrayOf("application/json", "text/plain", "*/*"))
         },
-        onQuickAdd = vm::quickAdd,
         callbacks = SettingsCallbacks(
             setTextScale = vm::setTextScale,
             setHighContrast = vm::setHighContrast,
@@ -120,16 +116,13 @@ data class SettingsCallbacks(
 @Composable
 fun SettingsScreen(
     state: SettingsUiState,
-    onOpenEditor: () -> Unit,
     onExportJson: () -> Unit,
     onExportMarkdown: () -> Unit,
     onImport: (ExportImport.ImportMode) -> Unit,
-    onQuickAdd: (Wheel, String) -> Unit,
     callbacks: SettingsCallbacks
 ) {
     val palette = LocalSparkPalette.current
     val s = state.settings
-    var showQuickAdd by remember { mutableStateOf(false) }
     var showDefaultDeck by remember { mutableStateOf(false) }
     var showImportChooser by remember { mutableStateOf(false) }
 
@@ -166,8 +159,6 @@ fun SettingsScreen(
 
         // --- Your ideas & content ---
         Group("Your ideas & content") {
-            ActionRow("Add your own ideas into rotation", "Drop entries into any wheel, or paste a whole list.") { showQuickAdd = true }
-            ActionRow("Manage decks & wheels", "Open the editor.") { onOpenEditor() }
             SwitchRow("Use entry weighting", "Honour per-entry weights when rolling.", s.weightingEnabled, callbacks.setWeighting)
             ActionRow("Default deck", currentDefaultDeckName(state)) { showDefaultDeck = true }
         }
@@ -201,13 +192,6 @@ fun SettingsScreen(
     }
 
     // --- Dialogs ---
-    if (showQuickAdd) {
-        QuickAddDialog(
-            state = state,
-            onConfirm = { wheel, text -> onQuickAdd(wheel, text); showQuickAdd = false },
-            onDismiss = { showQuickAdd = false }
-        )
-    }
     if (showDefaultDeck) {
         DefaultDeckDialog(
             state = state,
@@ -288,79 +272,6 @@ private fun ActionRow(label: String, desc: String, onClick: () -> Unit) {
 private fun currentDefaultDeckName(state: SettingsUiState): String {
     val id = state.settings.defaultDeckId ?: return "First deck"
     return state.decks.firstOrNull { it.id == id }?.name ?: "First deck"
-}
-
-@Composable
-private fun QuickAddDialog(
-    state: SettingsUiState,
-    onConfirm: (Wheel, String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val palette = LocalSparkPalette.current
-    // Build a labelled "Deck / Wheel" list so the target is unambiguous.
-    val options = state.decks.flatMap { deck ->
-        deck.wheelIds.mapNotNull { id -> state.wheels.firstOrNull { it.id == id } }
-            .map { wheel -> Triple(deck.name, wheel, "${deck.name}  /  ${wheel.name}") }
-    }
-    var selected by remember { mutableStateOf(options.firstOrNull()?.second) }
-    var text by remember { mutableStateOf("") }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(palette.surface)
-                .padding(20.dp)
-        ) {
-            Text("Add into rotation", color = palette.onBackground, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.size(4.dp))
-            Text("Pick a wheel, then add one idea or paste a list (one per line).", color = palette.onSurfaceMuted, fontSize = 13.sp)
-            Spacer(Modifier.size(12.dp))
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(160.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                options.forEach { (_, wheel, label) ->
-                    val isSel = selected?.id == wheel.id
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isSel) palette.surfaceElevated else Color.Transparent)
-                            .clickable { selected = wheel }
-                            .padding(10.dp)
-                    ) {
-                        Text(label, color = palette.onBackground, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                        if (isSel) Icon(Icons.Filled.Check, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
-                    }
-                }
-            }
-
-            Spacer(Modifier.size(10.dp))
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                label = { Text("Ideas (one per line)") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(120.dp)
-            )
-            Spacer(Modifier.size(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Cancel", color = palette.onSurfaceMuted) }
-                TextButton(
-                    onClick = { selected?.let { onConfirm(it, text) } },
-                    enabled = selected != null && text.isNotBlank()
-                ) { Text("Add", color = palette.accent) }
-            }
-        }
-    }
 }
 
 @Composable

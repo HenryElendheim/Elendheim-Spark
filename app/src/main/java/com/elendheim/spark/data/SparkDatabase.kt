@@ -5,6 +5,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
  * The Room database. Three small tables: decks, wheels, and the vault.
@@ -14,7 +16,7 @@ import androidx.room.TypeConverters
  */
 @Database(
     entities = [DeckEntity::class, WheelEntity::class, SavedCollisionEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -26,13 +28,22 @@ abstract class SparkDatabase : RoomDatabase() {
         @Volatile
         private var instance: SparkDatabase? = null
 
+        // v1 -> v2: saved ideas gained a custom title and a save number. Add the
+        // columns in place so nobody's existing vault is wiped on upgrade.
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE saved_collisions ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE saved_collisions ADD COLUMN saveNumber INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun get(context: Context): SparkDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     SparkDatabase::class.java,
                     "elendheim_spark.db"
-                ).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2).build().also { instance = it }
             }
     }
 }

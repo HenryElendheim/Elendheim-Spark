@@ -9,11 +9,9 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import com.elendheim.spark.SparkApp
 import com.elendheim.spark.data.SparkRepository
-import com.elendheim.spark.data.newId
 import com.elendheim.spark.engine.ColliderEngine
 import com.elendheim.spark.model.Deck
 import com.elendheim.spark.model.Pick
-import com.elendheim.spark.model.SavedCollision
 import com.elendheim.spark.model.Wheel
 import com.elendheim.spark.settings.SettingsRepository
 import com.elendheim.spark.settings.SparkSettings
@@ -25,24 +23,26 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
-/** Everything the collide screen needs to draw itself, in one snapshot. */
+/** Everything the randomize screen needs to draw itself, in one snapshot. */
 data class ColliderUiState(
     val loading: Boolean = true,
     val decks: List<Deck> = emptyList(),
     val selectedDeck: Deck? = null,
-    val wheels: List<Wheel> = emptyList(),        // the selected deck's wheels, in order
-    val current: List<Pick> = emptyList(),        // the collision on screen right now
-    val lockedWheelNames: Set<String> = emptySet(),
-    val history: List<List<Pick>> = emptyList(),  // most-recent-first, capped
+    val wheels: List<Wheel> = emptyList(),          // all wheels of the deck (shown as chips)
+    val current: List<Pick> = emptyList(),          // the result on screen right now
+    val excludedWheelNames: Set<String> = emptySet(), // wheels switched off -> not in the mix
+    val history: List<List<Pick>> = emptyList(),    // most-recent-first, capped
     val settings: SparkSettings = SparkSettings(),
-    val landedNonce: Long = 0L                     // bumps each roll -> triggers haptic / announce
+    val landedNonce: Long = 0L                       // bumps each roll -> triggers animation / haptic
 )
 
 /**
- * Drives the collide screen. It owns the transient roll state (current picks,
- * which wheels are locked, the recent history) and asks the pure
- * [ColliderEngine] to do the actual rolling. No randomness or engine rules
- * leak into the UI.
+ * Drives the randomize screen. It owns the transient roll state (current picks,
+ * which wheels are switched off, the recent history) and asks the pure
+ * [ColliderEngine] to do the actual rolling.
+ *
+ * A wheel that is "excluded" simply does not take part in the mix and does not
+ * appear in the result -> that is what tapping a chip does now.
  */
 class ColliderViewModel(
     private val repository: SparkRepository,
@@ -54,7 +54,7 @@ class ColliderViewModel(
     // Transient, user-driven state.
     private val selectedDeckId = MutableStateFlow<String?>(null)
     private val current = MutableStateFlow<List<Pick>>(emptyList())
-    private val locked = MutableStateFlow<Set<String>>(emptySet())
+    private val excluded = MutableStateFlow<Set<String>>(emptySet())
     private val history = MutableStateFlow<List<List<Pick>>>(emptyList())
     private val landedNonce = MutableStateFlow(0L)
 
@@ -74,7 +74,7 @@ class ColliderViewModel(
         repository.wheels,
         settingsRepo.settings,
         selectedDeckId,
-        combine(current, locked, history, landedNonce) { c, l, h, n -> Quad(c, l, h, n) }
+        combine(current, excluded, history, landedNonce) { c, e, h, n -> Quad(c, e, h, n) }
     ) { decks, wheels, settings, selId, roll ->
         val deck = resolveDeck(decks, selId, settings.defaultDeckId)
         val deckWheels = wheelsForDeck(deck, wheels)
@@ -84,7 +84,7 @@ class ColliderViewModel(
             selectedDeck = deck,
             wheels = deckWheels,
             current = roll.current,
-            lockedWheelNames = roll.locked,
+            excludedWheelNames = roll.excluded,
             history = roll.history,
             settings = settings,
             landedNonce = roll.nonce
@@ -93,52 +93,37 @@ class ColliderViewModel(
 
     // --- Actions ---
 
-    /** Switch decks. Clears the current roll and locks so the new deck feels fresh. */
+    /** Switch decks. Clears the current roll and switched-off wheels for a fresh start. */
     fun selectDeck(deckId: String) {
         if (deckId == selectedDeckId.value) return
         selectedDeckId.value = deckId
         current.value = emptyList()
-        locked.value = emptySet()
+        excluded.value = emptySet()
     }
 
-    /** Roll every unlocked wheel. This is the COLLIDE button. */
+    /** Roll all the wheels that are switched on. This is the RANDOMIZE button. */
     fun collide() {
         val deck = currentDeck() ?: return
-        val wheels = wheelsForDeck(deck, wheelsSnapshot)
-        val next = if (current.value.isEmpty()) {
-            ColliderEngine.collide(deck, wheels, rng)
-        } else {
-            ColliderEngine.reroll(deck, wheels, current.value, locked.value, rng)
-        }
+        val wheels = includedWheels(deck)
+        if (wheels.isEmpty()) return
         pushHistory(current.value)
-        current.value = next
+        current.value = ColliderEngine.collide(deck, wheels, rng)
         landedNonce.value += 1
     }
 
-    /** Reroll only the unlocked wheels, keeping locked picks. */
-    fun reroll() = collide()
-
-    /** Keep the whole collision but reroll exactly one wheel (named, or random). */
-    fun mutate(wheelName: String? = null) {
+    /** Randomize just one wheel of the current result -> "randomize this one". */
+    fun randomizePick(wheelName: String) {
         val deck = currentDeck() ?: return
         if (current.value.isEmpty()) { collide(); return }
-        val wheels = wheelsForDeck(deck, wheelsSnapshot)
-        val next = ColliderEngine.mutate(deck, wheels, current.value, wheelName, rng)
+        val wheels = includedWheels(deck)
         pushHistory(current.value)
-        current.value = next
+        current.value = ColliderEngine.mutate(deck, wheels, current.value, wheelName, rng)
         landedNonce.value += 1
     }
 
     /**
-     * Reroll just one wheel of the current collision -> tap a pick, "randomize
-     * this one". Same as [mutate] but always aimed at a specific wheel.
-     */
-    fun randomizePick(wheelName: String) = mutate(wheelName)
-
-    /**
-     * Replace one pick with the user's own text, leaving the rest of the
-     * collision untouched. This is a one-off override on the current result; it
-     * does not change the wheel's entries.
+     * Replace one pick with the user's own text, leaving the rest untouched.
+     * A one-off override on the current result; it does not edit the wheel.
      */
     fun setCustomPick(wheelName: String, text: String) {
         val clean = text.trim()
@@ -150,9 +135,12 @@ class ColliderViewModel(
         landedNonce.value += 1
     }
 
-    /** Toggle a wheel's lock. Locked wheels keep their pick on the next roll. */
-    fun toggleLock(wheelName: String) {
-        locked.value = locked.value.toMutableSet().apply {
+    /**
+     * Toggle whether a wheel takes part. An excluded wheel is greyed out and
+     * does not appear in the result -> the accessible way to trim a mix down.
+     */
+    fun toggleExclude(wheelName: String) {
+        excluded.value = excluded.value.toMutableSet().apply {
             if (!add(wheelName)) remove(wheelName)
         }
     }
@@ -164,35 +152,33 @@ class ColliderViewModel(
         landedNonce.value += 1
     }
 
-    /** Save the current collision to the vault. Snapshots the text, never ids. */
+    /** Empty the recent-rolls list. */
+    fun clearHistory() {
+        history.value = emptyList()
+    }
+
+    /** Save the current result to the vault, auto-numbered. Snapshots the text. */
     fun saveCurrent(now: Long, onSaved: () -> Unit = {}) {
         val deck = currentDeck() ?: return
         val picks = current.value
         if (picks.isEmpty()) return
         viewModelScope.launch {
-            repository.saveCollision(
-                SavedCollision(
-                    id = newId(),
-                    deckId = deck.id,
-                    picks = picks,
-                    createdAt = now
-                )
-            )
+            repository.saveNewCollision(deck.id, picks, now)
             onSaved()
         }
     }
 
-    /** Surprise me: jump to a random deck and roll it. */
-    fun surpriseMe() {
+    /**
+     * The dice: jump to a random deck. It does NOT roll for you -> you press
+     * RANDOMIZE yourself once you see which deck landed.
+     */
+    fun pickRandomDeck() {
         val decks = decksSnapshot
         if (decks.isEmpty()) return
         val pick = decks.random(rng)
-        selectDeck(pick.id)
-        // Roll immediately using the freshly chosen deck.
-        val wheels = wheelsForDeck(pick, wheelsSnapshot)
-        current.value = ColliderEngine.collide(pick, wheels, rng)
-        locked.value = emptySet()
-        landedNonce.value += 1
+        selectedDeckId.value = pick.id
+        current.value = emptyList()
+        excluded.value = emptySet()
     }
 
     // --- Helpers ---
@@ -208,47 +194,35 @@ class ColliderViewModel(
     }
 
     /**
-     * The wheels of [deck] that take part in a mix, in the deck's order.
-     *
-     * The mix limit (a user setting) caps how many wheels collide at once, so
-     * the result stays readable instead of a wall of text. 0 means "all". We
-     * take the first N in deck order -> predictable, and you choose which by
-     * reordering wheels in the editor.
-     *
-     * When weighting is switched off globally, every entry is flattened to
-     * weight 1 so rolls are pure random.
+     * Every wheel of [deck], in deck order. When weighting is off globally,
+     * entries are flattened to weight 1 so rolls are pure random. These are the
+     * wheels shown as chips; the excluded ones are filtered out only at roll time.
      */
     private fun wheelsForDeck(deck: Deck?, allWheels: List<Wheel>): List<Wheel> {
         if (deck == null) return emptyList()
         val byId = allWheels.associateBy { it.id }
         val ordered = deck.wheelIds.mapNotNull { byId[it] }
-
-        val limit = settingsSnapshot.mixLimit
-        val limited = if (limit in 1 until ordered.size) ordered.take(limit) else ordered
-
         return if (settingsSnapshot.weightingEnabled) {
-            limited
+            ordered
         } else {
-            limited.map { w -> w.copy(entries = w.entries.map { it.copy(weight = 1) }) }
+            ordered.map { w -> w.copy(entries = w.entries.map { it.copy(weight = 1) }) }
         }
     }
 
-    /** Change how many wheels mix at once (0 = all). Persisted in settings. */
-    fun setMixLimit(value: Int) {
-        viewModelScope.launch { settingsRepo.setMixLimit(value) }
-    }
+    /** The wheels that actually roll: deck order, minus the switched-off ones. */
+    private fun includedWheels(deck: Deck): List<Wheel> =
+        wheelsForDeck(deck, wheelsSnapshot).filterNot { it.name in excluded.value }
 
     private fun pushHistory(picks: List<Pick>) {
         if (picks.isEmpty()) return
-        // Newest first, capped at 30: out with the old, in with the new. A great
-        // roll is never lost to a reflex re-roll.
+        // Newest first, capped at 30: out with the old, in with the new.
         history.value = (listOf(picks) + history.value).take(30)
     }
 
     // Small 4-tuple so we can combine four transient flows at once.
     private data class Quad(
         val current: List<Pick>,
-        val locked: Set<String>,
+        val excluded: Set<String>,
         val history: List<List<Pick>>,
         val nonce: Long
     )

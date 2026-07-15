@@ -49,6 +49,9 @@ interface SparkDao {
     @Query("SELECT * FROM saved_collisions ORDER BY createdAt DESC")
     fun observeVault(): Flow<List<SavedCollisionEntity>>
 
+    @Query("SELECT COALESCE(MAX(saveNumber), 0) FROM saved_collisions")
+    suspend fun maxSaveNumber(): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertSavedCollision(collision: SavedCollisionEntity)
 

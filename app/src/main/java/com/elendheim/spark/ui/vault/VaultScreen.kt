@@ -10,15 +10,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
@@ -74,6 +79,7 @@ fun VaultRoute() {
             deckName = state.deckNames[current.deckId] ?: "unknown",
             onDismiss = { editing = null },
             onToggleFavorite = { vm.toggleFavorite(current) },
+            onSaveTitle = { vm.updateTitle(current, it) },
             onSaveNote = { vm.updateNote(current, it) },
             onSaveTags = { vm.updateTags(current, it) },
             onDelete = {
@@ -125,15 +131,12 @@ fun VaultScreen(
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            FilterChip("All", state.deckFilter == null) { onDeckFilter(null) }
+            // Favorites sits right after All, then the decks.
+            FilterChip("All", state.deckFilter == null && !state.favoritesOnly) { onDeckFilter(null) }
+            FilterChip("Favorites", state.favoritesOnly) { onToggleFavoritesOnly() }
             state.decks.forEach { d ->
                 FilterChip(d.name, state.deckFilter == d.id) { onDeckFilter(d.id) }
             }
-            FilterChip(
-                label = "Favorites",
-                selected = state.favoritesOnly,
-                onClick = onToggleFavoritesOnly
-            )
         }
 
         Spacer(Modifier.size(12.dp))
@@ -174,45 +177,67 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun VaultCard(item: SavedCollision, deckName: String, onClick: () -> Unit) {
     val palette = LocalSparkPalette.current
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
+            .height(IntrinsicSize.Min)
             .clip(RoundedCornerShape(14.dp))
             .background(palette.surface)
             .border(1.dp, palette.outline, RoundedCornerShape(14.dp))
             .clickable { onClick() }
-            .padding(14.dp)
-            .semantics { contentDescription = "Saved idea: ${item.picks.asSpoken()}. Tap to open." }
+            .semantics { contentDescription = "${savedName(item, deckName)}. ${item.picks.asSpoken()}. Tap to open." }
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // A soft-red spine down the left edge -> gives the card a little identity.
+        Box(
+            Modifier
+                .width(4.dp)
+                .fillMaxHeight()
+                .background(palette.accent)
+        )
+        Column(modifier = Modifier.padding(14.dp)) {
+            // Name (custom title, or "Deck #n") plus the favourite star.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = savedName(item, deckName),
+                    color = palette.onBackground,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f)
+                )
+                if (item.favorite) {
+                    Icon(Icons.Filled.Star, contentDescription = "Favorite", tint = palette.accent, modifier = Modifier.size(20.dp))
+                }
+            }
+            Spacer(Modifier.size(6.dp))
+            // The idea itself.
             Text(
                 text = item.picks.asInline(),
                 color = palette.onBackground,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.weight(1f)
+                fontSize = 15.sp,
+                maxLines = 2
             )
-            if (item.favorite) {
-                Icon(Icons.Filled.Star, contentDescription = "Favorite", tint = palette.accent, modifier = Modifier.size(20.dp))
+            if (item.tags.isNotEmpty()) {
+                Spacer(Modifier.size(6.dp))
+                Text(
+                    text = item.tags.joinToString(" ") { "#$it" },
+                    color = palette.accent,
+                    fontSize = 13.sp
+                )
+            }
+            if (item.note.isNotBlank()) {
+                Spacer(Modifier.size(6.dp))
+                Text(text = item.note, color = palette.onSurfaceMuted, fontSize = 14.sp, maxLines = 2)
             }
         }
-        Spacer(Modifier.size(6.dp))
-        Text(
-            text = buildString {
-                if (deckName.isNotEmpty()) append(deckName)
-                if (item.tags.isNotEmpty()) {
-                    if (isNotEmpty()) append("  -  ")
-                    append(item.tags.joinToString(" ") { "#$it" })
-                }
-            },
-            color = palette.onSurfaceMuted,
-            fontSize = 13.sp
-        )
-        if (item.note.isNotBlank()) {
-            Spacer(Modifier.size(6.dp))
-            Text(text = item.note, color = palette.onSurfaceMuted, fontSize = 14.sp, maxLines = 2)
-        }
     }
+}
+
+/** The readable name for a saved idea: its custom title, or "Deck #number". */
+private fun savedName(item: SavedCollision, deckName: String): String {
+    if (item.title.isNotBlank()) return item.title
+    val base = deckName.ifBlank { "Saved" }
+    return if (item.saveNumber > 0) "$base #${item.saveNumber}" else base
 }
 
 @Composable
@@ -221,7 +246,7 @@ private fun EmptyVault(hasAny: Boolean) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(
             text = if (hasAny) "Nothing matches your search yet."
-            else "No saved sparks yet.\nRoll on the Collide tab and save the good ones.",
+            else "No saved sparks yet.\nRoll on the Randomize tab and save the good ones.",
             color = palette.onSurfaceMuted,
             fontSize = 16.sp,
             modifier = Modifier.padding(24.dp)
@@ -239,12 +264,14 @@ private fun VaultDetailDialog(
     deckName: String,
     onDismiss: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onSaveTitle: (String) -> Unit,
     onSaveNote: (String) -> Unit,
     onSaveTags: (String) -> Unit,
     onDelete: () -> Unit
 ) {
     val palette = LocalSparkPalette.current
     val context = LocalContext.current
+    var title by remember(item.id) { mutableStateOf(item.title) }
     var note by remember(item.id) { mutableStateOf(item.note) }
     var tags by remember(item.id) { mutableStateOf(item.tags.joinToString(", ")) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -255,19 +282,48 @@ private fun VaultDetailDialog(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(18.dp))
                 .background(palette.surface)
+                .verticalScroll(rememberScrollState())
                 .padding(20.dp)
         ) {
-            // The idea, big.
+            // Name + which deck and save number this is.
+            Text(
+                text = savedName(item, deckName),
+                color = palette.onBackground,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.size(2.dp))
+            Text(
+                text = buildString {
+                    append(deckName.ifBlank { "Saved" })
+                    if (item.saveNumber > 0) append("  -  save #${item.saveNumber}")
+                },
+                color = palette.onSurfaceMuted,
+                fontSize = 13.sp
+            )
+
+            Spacer(Modifier.size(12.dp))
+
+            // The idea itself.
             Text(
                 text = item.picks.asInline(),
                 color = palette.onBackground,
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold
             )
-            Spacer(Modifier.size(4.dp))
-            Text(text = deckName, color = palette.onSurfaceMuted, fontSize = 13.sp)
 
             Spacer(Modifier.size(16.dp))
+
+            // Rename.
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it; onSaveTitle(it) },
+                singleLine = true,
+                label = { Text("Name (optional)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.size(14.dp))
 
             // Favourite toggle.
             Row(

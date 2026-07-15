@@ -75,6 +75,11 @@ class VaultViewModel(private val repository: SparkRepository) : ViewModel() {
         repository.updateCollision(item.copy(note = note))
     }
 
+    /** Give a saved idea a custom name; blank falls back to deck name + number. */
+    fun updateTitle(item: SavedCollision, title: String) = viewModelScope.launch {
+        repository.updateCollision(item.copy(title = title.trim()))
+    }
+
     /** Tags come in as a comma-separated string from the UI; tidy them here. */
     fun updateTags(item: SavedCollision, rawTags: String) = viewModelScope.launch {
         val tags = rawTags.split(",").map { it.trim() }.filter { it.isNotEmpty() }.distinct()

@@ -55,7 +55,9 @@ data class SavedCollision(
     val note: String = "",       // what you want to make of it, added later
     val tags: List<String> = emptyList(),
     val favorite: Boolean = false,
-    val createdAt: Long
+    val createdAt: Long,
+    val title: String = "",      // optional custom name; blank -> shown as deck name + number
+    val saveNumber: Int = 0      // sequential save number, for a readable label
 )
 
 /** One wheel's contribution to a collision: which wheel, and the text picked. */

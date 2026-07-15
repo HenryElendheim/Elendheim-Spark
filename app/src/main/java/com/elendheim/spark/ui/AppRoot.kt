@@ -2,6 +2,7 @@ package com.elendheim.spark.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,6 +27,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -44,7 +47,7 @@ import com.elendheim.spark.ui.vault.VaultRoute
 
 /** The four top-level destinations. */
 private enum class Tab(val label: String, val icon: ImageVector, val desc: String) {
-    Collide("Collide", Icons.Filled.Bolt, "Collide tab: roll new ideas"),
+    Collide("Randomize", Icons.Filled.Bolt, "Randomize tab: roll new ideas"),
     Vault("Vault", Icons.Filled.Inventory2, "Vault tab: your saved ideas"),
     Editor("Editor", Icons.Filled.Tune, "Editor tab: curate decks and wheels"),
     Settings("Settings", Icons.Filled.Settings, "Settings tab")
@@ -93,7 +96,7 @@ fun AppRoot(settings: SparkSettings) {
                 Tab.Collide -> ColliderRoute()
                 Tab.Vault -> VaultRoute()
                 Tab.Editor -> EditorRoute()
-                Tab.Settings -> SettingsRoute(onOpenEditor = { tab = Tab.Editor })
+                Tab.Settings -> SettingsRoute()
             }
         }
     }
@@ -112,7 +115,10 @@ private fun SparkBottomBar(current: Tab, onSelect: (Tab) -> Unit) {
     ) {
         Tab.entries.forEach { t ->
             val selected = t == current
-            Column(
+            // The selected tab gets a solid accent pill so it is unmistakable
+            // which screen you are on (the plain tint was too easy to miss).
+            val onPill = Color(0xFF1A0B0C)
+            Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxSize()
@@ -120,21 +126,28 @@ private fun SparkBottomBar(current: Tab, onSelect: (Tab) -> Unit) {
                     .semantics {
                         contentDescription = if (selected) "${t.desc}, selected" else t.desc
                     },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+                contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = t.icon,
-                    contentDescription = null,
-                    tint = if (selected) palette.accent else palette.onSurfaceMuted,
-                    modifier = Modifier.size(24.dp)
-                )
-                Text(
-                    text = t.label,
-                    color = if (selected) palette.onBackground else palette.onSurfaceMuted,
-                    fontSize = 11.sp,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
-                )
+                Column(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(if (selected) palette.accent else Color.Transparent)
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = t.icon,
+                        contentDescription = null,
+                        tint = if (selected) onPill else palette.onSurfaceMuted,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text(
+                        text = t.label,
+                        color = if (selected) onPill else palette.onSurfaceMuted,
+                        fontSize = 11.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                    )
+                }
             }
         }
     }

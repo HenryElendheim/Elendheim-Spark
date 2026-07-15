@@ -47,7 +47,9 @@ data class SavedCollisionEntity(
     val note: String,
     val tags: List<String>,
     val favorite: Boolean,
-    val createdAt: Long
+    val createdAt: Long,
+    val title: String = "",
+    val saveNumber: Int = 0
 )
 
 /**
@@ -87,5 +89,8 @@ fun Deck.toEntity() = DeckEntity(id, name, wheelIds, createdAt)
 fun WheelEntity.toModel() = Wheel(id, name, colorHex, entries)
 fun Wheel.toEntity() = WheelEntity(id, name, colorHex, entries)
 
-fun SavedCollisionEntity.toModel() = SavedCollision(id, deckId, picks, note, tags, favorite, createdAt)
-fun SavedCollision.toEntity() = SavedCollisionEntity(id, deckId, picks, note, tags, favorite, createdAt)
+fun SavedCollisionEntity.toModel() =
+    SavedCollision(id, deckId, picks, note, tags, favorite, createdAt, title, saveNumber)
+
+fun SavedCollision.toEntity() =
+    SavedCollisionEntity(id, deckId, picks, note, tags, favorite, createdAt, title, saveNumber)

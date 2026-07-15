@@ -4,6 +4,28 @@ All notable changes to Elendheim Spark are recorded here. Versions run from
 v1.0 upward; small changes bump the minor number (v1.1, v1.2...) and big ones
 step toward the next whole version.
 
+## v1.3 - Elendheim Spark
+
+A big accessibility and polish pass on the whole flow.
+
+- **Collide is now "Randomize".** The tab and button are renamed, and the
+  selected tab now has a solid red highlight so it is obvious where you are.
+- **Switch wheels off instead of locking.** Tapping a wheel chip now removes it
+  from the mix entirely -> it greys out with a line through its name and does not
+  appear in the result. The lock icon is gone; chips are just names.
+- **Slot-machine rolls.** Randomize spins each line through random values and
+  clicks into place, one after another. Honours reduce-motion.
+- **Dice animation, and it no longer rolls for you.** The dice flickers through
+  decks and reveals the landed one with a small bounce; you then press Randomize
+  yourself.
+- **Colourblind mode uses symbols.** Each wheel gets a distinct shape, so meaning
+  never rests on colour.
+- **Empty your recents** from inside the Recents list.
+- **Prettier vault.** Each saved idea shows a name (its deck and save number) you
+  can rename, with a cleaner card. Favorites now sits right next to All.
+- Tidied the Settings menu (removed the redundant "add ideas" and "manage decks"
+  shortcuts; the Editor tab already covers them).
+
 ## v1.2 - Elendheim Spark
 
 More control over each idea, and a clearer shuffle.

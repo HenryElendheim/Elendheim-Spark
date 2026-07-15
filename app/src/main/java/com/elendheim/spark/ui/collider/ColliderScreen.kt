@@ -21,15 +21,17 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Casino
+import androidx.compose.material.icons.filled.ChangeHistory
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Square
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.Icon
@@ -42,8 +44,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
@@ -53,6 +57,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
@@ -62,6 +67,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.elendheim.spark.model.Pick
@@ -72,10 +78,23 @@ import com.elendheim.spark.ui.common.asSpoken
 import com.elendheim.spark.ui.common.toColorOrDefault
 import com.elendheim.spark.ui.theme.LocalSparkPalette
 import com.elendheim.spark.ui.theme.colorblindFriendlyWheelColors
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+// Distinct shapes used in colourblind mode, so a wheel is told apart by its
+// symbol, not only its colour.
+private val wheelSymbols = listOf(
+    Icons.Filled.Circle,
+    Icons.Filled.Square,
+    Icons.Filled.Star,
+    Icons.Filled.Favorite,
+    Icons.Filled.Bolt,
+    Icons.Filled.ChangeHistory
+)
 
 /**
- * Wires the collide screen to its view-model and shows a small confirmation when
- * an idea is saved. This is what the navigation shell calls.
+ * Wires the randomize screen to its view-model and shows a small confirmation
+ * when an idea is saved.
  */
 @Composable
 fun ColliderRoute() {
@@ -87,38 +106,35 @@ fun ColliderRoute() {
         state = state,
         onSelectDeck = vm::selectDeck,
         onCollide = vm::collide,
-        onToggleLock = vm::toggleLock,
+        onToggleExclude = vm::toggleExclude,
         onSave = {
             vm.saveCurrent(System.currentTimeMillis()) {
                 Toast.makeText(context, "Saved to vault", Toast.LENGTH_SHORT).show()
             }
         },
-        onSurprise = vm::surpriseMe,
+        onRandomDeck = vm::pickRandomDeck,
         onRestoreHistory = vm::restoreFromHistory,
-        onSetMixLimit = vm::setMixLimit,
+        onClearHistory = vm::clearHistory,
         onRandomizePick = vm::randomizePick,
         onCustomPick = vm::setCustomPick
     )
 }
 
 /**
- * The home of the app: pick a deck, tap COLLIDE, and read the idea. Lock the
- * wheels you like, reroll or mutate the rest, and save the sparks.
- *
- * Accessibility is wired straight into this screen: the result is announced to
- * screen readers when it lands, motion can be switched off, tap targets can be
- * grown, wheel meaning always carries a name label, and haptics are optional.
+ * The home of the app: pick a deck, tap RANDOMIZE, and read the idea. Switch off
+ * the wheels you don't want, tap a pick to change just that one, and save the
+ * sparks. Rolls animate like a slot machine and settle with a satisfying click.
  */
 @Composable
 fun ColliderScreen(
     state: ColliderUiState,
     onSelectDeck: (String) -> Unit,
     onCollide: () -> Unit,
-    onToggleLock: (String) -> Unit,
+    onToggleExclude: (String) -> Unit,
     onSave: () -> Unit,
-    onSurprise: () -> Unit,
+    onRandomDeck: () -> Unit,
     onRestoreHistory: (List<Pick>) -> Unit,
-    onSetMixLimit: (Int) -> Unit,
+    onClearHistory: () -> Unit,
     onRandomizePick: (String) -> Unit,
     onCustomPick: (String, String) -> Unit
 ) {
@@ -126,24 +142,46 @@ fun ColliderScreen(
     val settings = state.settings
     val haptics = LocalHapticFeedback.current
     val view = LocalView.current
+    val scope = rememberCoroutineScope()
 
-    // Larger-tap-target toggle grows the interactive controls for motor accessibility.
     val touch = if (settings.largerTapTargets) 64.dp else 48.dp
 
-    // Overlays: the deck picker, the recents list, and the per-pick editor are
-    // opened on demand so the main screen stays calm and uncluttered.
     var showDeckPicker by remember { mutableStateOf(false) }
     var showRecents by remember { mutableStateOf(false) }
     var editingPick by remember { mutableStateOf<Pick?>(null) }
 
-    val totalWheels = state.selectedDeck?.wheelIds?.size ?: 0
+    // Dice animation: while rolling, the deck name flickers through random decks
+    // and the real answer is not shown until it settles.
+    var diceDisplay by remember { mutableStateOf<String?>(null) }
+    var diceRolling by remember { mutableStateOf(false) }
+    var deckSettleNonce by remember { mutableStateOf(0L) }
 
-    // When a collision lands, optionally buzz and speak the result for TalkBack.
+    fun rollDice() {
+        if (diceRolling) return
+        val names = state.decks.map { it.name }
+        if (names.size < 2 || settings.reduceMotion) { onRandomDeck(); return }
+        scope.launch {
+            diceRolling = true
+            for (i in 0 until 14) {
+                diceDisplay = names.random()
+                delay(45L + i * 8L)   // slow down toward the end
+            }
+            onRandomDeck()            // now actually pick the deck (no auto-roll)
+            diceDisplay = null        // reveal the real landed deck
+            deckSettleNonce += 1      // trigger the settle bounce
+            if (settings.haptics) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            diceRolling = false
+        }
+    }
+
+    // When a result lands, optionally buzz and speak it for TalkBack.
     LaunchedEffect(state.landedNonce) {
         if (state.landedNonce == 0L || state.current.isEmpty()) return@LaunchedEffect
         if (settings.haptics) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         if (settings.announceResult) view.announceForAccessibility(state.current.asSpoken())
     }
+
+    val deckLabel = diceDisplay ?: (state.selectedDeck?.name ?: "No deck")
 
     Column(
         modifier = Modifier
@@ -157,59 +195,35 @@ fun ColliderScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             DeckPickerButton(
-                deckName = state.selectedDeck?.name ?: "No deck",
-                onClick = { showDeckPicker = true },
+                deckName = deckLabel,
+                settleNonce = deckSettleNonce,
+                onClick = { if (!diceRolling) showDeckPicker = true },
                 modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.size(10.dp))
-            // The dice jumps to a random deck and rolls it -> a clear "shuffle
-            // decks" control, up in the top-right where you expect it.
-            DiceButton(
-                enabled = state.decks.size > 1,
-                onClick = onSurprise
-            )
-        }
-
-        Spacer(Modifier.size(10.dp))
-
-        // --- How many wheels to mix at once ---
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Spacer(Modifier.weight(1f))
-            Text("Ideas per mix", color = palette.onSurfaceMuted, fontSize = 13.sp)
-            Spacer(Modifier.size(8.dp))
-            MixStepper(
-                active = state.wheels.size,
-                total = totalWheels,
-                onLess = { onSetMixLimit((state.wheels.size - 1).coerceAtLeast(1)) },
-                onMore = {
-                    val next = state.wheels.size + 1
-                    onSetMixLimit(if (next >= totalWheels) 0 else next)
-                }
-            )
+            DiceButton(enabled = state.decks.size > 1 && !diceRolling, onClick = { rollDice() })
         }
 
         Spacer(Modifier.size(14.dp))
 
-        // --- Wheel chips (name + colour + lock) ---
+        // --- Wheel chips: tap to switch a wheel off (it leaves the mix) ---
         if (state.wheels.isNotEmpty()) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                state.wheels.forEach { wheel ->
+                state.wheels.forEachIndexed { index, wheel ->
                     WheelChip(
                         wheel = wheel,
-                        locked = wheel.name in state.lockedWheelNames,
+                        index = index,
+                        excluded = wheel.name in state.excludedWheelNames,
                         colorblind = settings.colorblindPalette,
                         showLabel = settings.showWheelLabels,
                         touch = touch,
-                        onToggleLock = { onToggleLock(wheel.name) }
+                        onToggle = { onToggleExclude(wheel.name) }
                     )
                 }
             }
         }
 
-        // --- The result: the payoff, one pick per line and colour-coded ---
+        // --- The result: the payoff, one pick per line and colour/symbol-coded ---
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -219,22 +233,21 @@ fun ColliderScreen(
         ) {
             ResultDisplay(
                 picks = state.current,
+                wheels = state.wheels,
                 landedNonce = state.landedNonce,
                 settings = settings,
-                colorFor = { name -> resultColor(name, state.wheels, settings.colorblindPalette, palette.accent) },
                 onText = palette.onBackground,
                 muted = palette.onSurfaceMuted,
                 onPickTap = { editingPick = it }
             )
         }
 
-        // --- The controls: save on the left, recents on the right ---
+        // --- Controls: save on the left, recents on the right ---
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Save to vault.
             SecondaryAction(
                 icon = Icons.Outlined.BookmarkAdd,
                 description = "Save this idea to the vault",
@@ -245,10 +258,7 @@ fun ColliderScreen(
                     onSave()
                 }
             )
-
             Spacer(Modifier.weight(1f))
-
-            // Recents: tucked behind a button so the screen stays calm.
             RecentsButton(
                 count = state.history.size,
                 enabled = state.history.isNotEmpty(),
@@ -258,10 +268,10 @@ fun ColliderScreen(
 
         Spacer(Modifier.size(12.dp))
 
-        // --- The big COLLIDE button ---
+        // --- The big RANDOMIZE button ---
         CollideButton(
-            label = if (state.current.isEmpty()) "COLLIDE" else "REROLL",
-            enabled = state.wheels.isNotEmpty(),
+            label = if (state.current.isEmpty()) "RANDOMIZE" else "AGAIN",
+            enabled = state.wheels.any { it.name !in state.excludedWheelNames },
             accent = palette.accent,
             accentPressed = palette.accentPressed,
             tall = settings.largerTapTargets,
@@ -281,15 +291,15 @@ fun ColliderScreen(
     if (showRecents) {
         RecentsDialog(
             history = state.history,
-            colorFor = { name -> resultColor(name, state.wheels, settings.colorblindPalette, palette.accent) },
             onRestore = { onRestoreHistory(it); showRecents = false },
+            onClear = { onClearHistory(); showRecents = false },
             onDismiss = { showRecents = false }
         )
     }
     editingPick?.let { pick ->
         PickActionDialog(
             pick = pick,
-            accent = resultColor(pick.wheelName, state.wheels, settings.colorblindPalette, palette.accent),
+            accent = palette.accent,
             onRandomize = { onRandomizePick(pick.wheelName); editingPick = null },
             onCustom = { text -> onCustomPick(pick.wheelName, text); editingPick = null },
             onDismiss = { editingPick = null }
@@ -298,15 +308,27 @@ fun ColliderScreen(
 }
 
 /**
- * The current deck, shown as a single tappable button. Tapping it opens a
- * searchable list of decks -> no more fiddly swiping through a tab strip.
+ * The current deck as a tappable button. During a dice roll the parent feeds it
+ * flickering random names; when it settles it gives a small bounce.
  */
 @Composable
-private fun DeckPickerButton(deckName: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun DeckPickerButton(
+    deckName: String,
+    settleNonce: Long,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val palette = LocalSparkPalette.current
+    val scale = remember { Animatable(1f) }
+    LaunchedEffect(settleNonce) {
+        if (settleNonce == 0L) return@LaunchedEffect
+        scale.snapTo(1.08f)
+        scale.animateTo(1f, animationSpec = tween(180))
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
+            .scale(scale.value)
             .clip(RoundedCornerShape(20.dp))
             .background(palette.surfaceElevated)
             .border(1.dp, palette.outline, RoundedCornerShape(20.dp))
@@ -323,56 +345,209 @@ private fun DeckPickerButton(deckName: String, onClick: () -> Unit, modifier: Mo
             modifier = Modifier.weight(1f, fill = false)
         )
         Spacer(Modifier.size(6.dp))
-        Icon(
-            imageVector = Icons.Filled.ExpandMore,
-            contentDescription = null,
-            tint = palette.onSurfaceMuted,
-            modifier = Modifier.size(20.dp)
-        )
+        Icon(Icons.Filled.ExpandMore, contentDescription = null, tint = palette.onSurfaceMuted, modifier = Modifier.size(20.dp))
     }
 }
 
-/** A compact "how many wheels to mix" stepper. Shows active / total, or All. */
+/**
+ * The random-deck dice, top-right. Jumps to a random deck (it does not roll the
+ * result for you). Accent-ringed so it clearly means "shuffle to another deck".
+ */
 @Composable
-private fun MixStepper(active: Int, total: Int, onLess: () -> Unit, onMore: () -> Unit) {
+private fun DiceButton(enabled: Boolean, onClick: () -> Unit) {
     val palette = LocalSparkPalette.current
-    val label = if (total > 0 && active >= total) "All" else "$active/$total"
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(palette.surface)
-            .border(1.dp, palette.outline, RoundedCornerShape(20.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp)
-            .semantics { contentDescription = "Mixing $active of $total wheels" }
-    ) {
-        StepButton("Mix fewer wheels", enabled = active > 1, onClick = onLess) {
-            Icon(Icons.Filled.Remove, contentDescription = null, tint = palette.onBackground, modifier = Modifier.size(18.dp))
-        }
-        Text(
-            text = label,
-            color = palette.onBackground,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 4.dp)
-        )
-        StepButton("Mix more wheels", enabled = total > 0 && active < total, onClick = onMore) {
-            Icon(Icons.Filled.Add, contentDescription = null, tint = palette.onBackground, modifier = Modifier.size(18.dp))
-        }
-    }
-}
-
-@Composable
-private fun StepButton(description: String, enabled: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
     Box(
         modifier = Modifier
-            .size(34.dp)
+            .size(48.dp)
             .clip(CircleShape)
-            .alpha(if (enabled) 1f else 0.35f)
+            .background(palette.surfaceElevated)
+            .border(1.5.dp, palette.accent, CircleShape)
+            .alpha(if (enabled) 1f else 0.4f)
             .clickable(enabled = enabled) { onClick() }
-            .semantics { contentDescription = description },
+            .semantics { contentDescription = "Random deck: jump to a random deck" },
         contentAlignment = Alignment.Center
-    ) { content() }
+    ) {
+        Icon(Icons.Filled.Casino, contentDescription = null, tint = palette.accent, modifier = Modifier.size(24.dp))
+    }
+}
+
+/**
+ * One wheel as a chip. Tap to switch it off: it greys out with a line through
+ * its name so it is obvious it is no longer in the mix. No lock icon -> just the
+ * name, plus a colour dot or (in colourblind mode) a distinct symbol.
+ */
+@Composable
+private fun WheelChip(
+    wheel: Wheel,
+    index: Int,
+    excluded: Boolean,
+    colorblind: Boolean,
+    showLabel: Boolean,
+    touch: androidx.compose.ui.unit.Dp,
+    onToggle: () -> Unit
+) {
+    val palette = LocalSparkPalette.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier
+            .heightIn(min = touch)
+            .clip(RoundedCornerShape(12.dp))
+            .background(palette.surface)
+            .border(1.dp, palette.outline, RoundedCornerShape(12.dp))
+            .alpha(if (excluded) 0.5f else 1f)
+            .clickable { onToggle() }
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .semantics {
+                contentDescription = if (excluded) {
+                    "${wheel.name} wheel, switched off. Tap to include it."
+                } else {
+                    "${wheel.name} wheel, on. Tap to switch it off."
+                }
+            }
+    ) {
+        WheelGlyph(index = index, colorblind = colorblind, hex = wheel.colorHex, sizeDp = 12)
+        if (showLabel) {
+            Text(
+                text = wheel.name,
+                color = if (excluded) palette.onSurfaceMuted else palette.onBackground,
+                fontSize = 14.sp,
+                textDecoration = if (excluded) TextDecoration.LineThrough else TextDecoration.None
+            )
+        }
+    }
+}
+
+/**
+ * The result: one pick per line, colour/symbol-coded and generously spaced. Each
+ * line slot-machines through random values then clicks into place, and tapping a
+ * line opens its editor.
+ */
+@Composable
+private fun ResultDisplay(
+    picks: List<Pick>,
+    wheels: List<Wheel>,
+    landedNonce: Long,
+    settings: SparkSettings,
+    onText: Color,
+    muted: Color,
+    onPickTap: (Pick) -> Unit
+) {
+    if (picks.isEmpty()) {
+        Text(
+            text = "Tap RANDOMIZE to spark an idea.",
+            color = muted,
+            fontSize = 18.sp,
+            textAlign = TextAlign.Center
+        )
+        return
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .semantics { liveRegion = LiveRegionMode.Polite },
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        picks.forEachIndexed { lineIndex, pick ->
+            val wheelIndex = wheels.indexOfFirst { it.name == pick.wheelName }.coerceAtLeast(0)
+            val candidates = wheels.firstOrNull { it.name == pick.wheelName }?.entries?.map { it.text } ?: emptyList()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onPickTap(pick) }
+                    .padding(vertical = 4.dp)
+                    .semantics { contentDescription = "${pick.wheelName}: ${pick.text}. Tap to change this one." }
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    WheelGlyph(index = wheelIndex, colorblind = settings.colorblindPalette, hex = candidateColor(wheels, pick.wheelName), sizeDp = 12)
+                    if (settings.showWheelLabels) {
+                        Text(
+                            text = pick.wheelName,
+                            color = glyphColor(wheelIndex, settings.colorblindPalette, candidateColor(wheels, pick.wheelName)),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                Spacer(Modifier.size(4.dp))
+                key(pick.wheelName) {
+                    SlotPickText(
+                        finalText = pick.text,
+                        candidates = candidates,
+                        landedNonce = landedNonce,
+                        reduceMotion = settings.reduceMotion,
+                        staggerIndex = lineIndex,
+                        color = onText
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * One result line that slot-machines through random candidate values before
+ * settling on the final pick with a small "click" bounce. Honours reduce-motion.
+ */
+@Composable
+private fun SlotPickText(
+    finalText: String,
+    candidates: List<String>,
+    landedNonce: Long,
+    reduceMotion: Boolean,
+    staggerIndex: Int,
+    color: Color
+) {
+    var shown by remember { mutableStateOf(finalText) }
+    val scale = remember { Animatable(1f) }
+
+    LaunchedEffect(landedNonce, finalText) {
+        if (reduceMotion || candidates.size <= 1) {
+            shown = finalText
+            return@LaunchedEffect
+        }
+        // Lines settle one after another for a satisfying cascade.
+        delay(staggerIndex * 90L)
+        for (i in 0 until 10) {
+            shown = candidates.random()
+            delay(45L + i * 14L)   // ease-out: slower toward the end
+        }
+        shown = finalText
+        scale.snapTo(1.12f)
+        scale.animateTo(1f, animationSpec = tween(160))
+    }
+
+    Text(
+        text = shown,
+        color = color,
+        fontSize = 26.sp,
+        fontWeight = FontWeight.Bold,
+        lineHeight = 30.sp,
+        modifier = Modifier.scale(scale.value)
+    )
+}
+
+/** A colour dot, or a distinct symbol in colourblind mode. */
+@Composable
+private fun WheelGlyph(index: Int, colorblind: Boolean, hex: String, sizeDp: Int) {
+    if (colorblind) {
+        Icon(
+            imageVector = wheelSymbols[index % wheelSymbols.size],
+            contentDescription = null,
+            tint = glyphColor(index, true, hex),
+            modifier = Modifier.size(sizeDp.dp)
+        )
+    } else {
+        Box(
+            Modifier
+                .size(sizeDp.dp)
+                .clip(CircleShape)
+                .background(hex.toColorOrDefault(Color(0xFFE0555A)))
+        )
+    }
 }
 
 /** A searchable, scrollable deck chooser. */
@@ -387,7 +562,7 @@ private fun DeckPickerDialog(
     var query by remember { mutableStateOf("") }
     val filtered = decks.filter { it.second.contains(query.trim(), ignoreCase = true) }
 
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+    Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
                 .fillMaxWidth()
@@ -397,7 +572,7 @@ private fun DeckPickerDialog(
         ) {
             Text("Choose a deck", color = palette.onBackground, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.size(12.dp))
-            androidx.compose.material3.OutlinedTextField(
+            OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
                 singleLine = true,
@@ -439,150 +614,6 @@ private fun DeckPickerDialog(
     }
 }
 
-/** One wheel, shown as a coloured chip with its name label and a lock toggle. */
-@Composable
-private fun WheelChip(
-    wheel: Wheel,
-    locked: Boolean,
-    colorblind: Boolean,
-    showLabel: Boolean,
-    touch: androidx.compose.ui.unit.Dp,
-    onToggleLock: () -> Unit
-) {
-    val palette = LocalSparkPalette.current
-    // In colourblind mode, remap the stored colour onto the higher-separation set.
-    val chipColor = wheelColor(wheel.colorHex, colorblind)
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier
-            .heightIn(min = touch)
-            .clip(RoundedCornerShape(12.dp))
-            .background(palette.surface)
-            .border(
-                width = if (locked) 2.dp else 1.dp,
-                color = if (locked) palette.accent else palette.outline,
-                shape = RoundedCornerShape(12.dp)
-            )
-            .clickable { onToggleLock() }
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .semantics {
-                contentDescription = if (locked) {
-                    "${wheel.name} wheel, locked. Tap to unlock."
-                } else {
-                    "${wheel.name} wheel, unlocked. Tap to lock its pick."
-                }
-            }
-    ) {
-        // Colour dot -> a visual cue, but never the only one (label follows).
-        Box(
-            modifier = Modifier
-                .size(12.dp)
-                .clip(CircleShape)
-                .background(chipColor)
-        )
-        if (showLabel) {
-            Text(text = wheel.name, color = palette.onBackground, fontSize = 14.sp)
-        }
-        Icon(
-            imageVector = if (locked) Icons.Filled.Lock else Icons.Filled.LockOpen,
-            contentDescription = null,   // described on the parent row
-            tint = if (locked) palette.accent else palette.onSurfaceMuted,
-            modifier = Modifier.size(16.dp)
-        )
-    }
-}
-
-/**
- * The result in the middle: one pick per line, each with its wheel's colour and
- * (optionally) name, generously spaced so it is easy to read instead of a wall
- * of overlapping text. Scrolls if a mix has many wheels.
- */
-@Composable
-private fun ResultDisplay(
-    picks: List<Pick>,
-    landedNonce: Long,
-    settings: SparkSettings,
-    colorFor: (String) -> Color,
-    onText: Color,
-    muted: Color,
-    onPickTap: (Pick) -> Unit
-) {
-    if (picks.isEmpty()) {
-        Text(
-            text = "Tap COLLIDE to spark an idea.",
-            color = muted,
-            fontSize = 18.sp,
-            textAlign = TextAlign.Center
-        )
-        return
-    }
-
-    // A gentle settle animation on each landing, unless motion is reduced.
-    // Keyed on the nonce so it replays every time a new idea lands.
-    val scale = remember { Animatable(1f) }
-    LaunchedEffect(landedNonce) {
-        if (settings.reduceMotion) {
-            scale.snapTo(1f)
-        } else {
-            scale.snapTo(0.92f)
-            scale.animateTo(1f, animationSpec = tween(260))
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .scale(scale.value)
-            // One live region on the whole result so TalkBack reads the change.
-            .semantics { liveRegion = LiveRegionMode.Polite },
-        verticalArrangement = Arrangement.spacedBy(18.dp)
-    ) {
-        picks.forEach { pick ->
-            // Tapping a pick opens the editor: choose your own, or randomise it.
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable { onPickTap(pick) }
-                    .padding(vertical = 4.dp)
-                    .semantics { contentDescription = "${pick.wheelName}: ${pick.text}. Tap to change this one." }
-            ) {
-                // Colour is always shown (a dot); the name label is optional.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        Modifier
-                            .size(12.dp)
-                            .clip(CircleShape)
-                            .background(colorFor(pick.wheelName))
-                    )
-                    if (settings.showWheelLabels) {
-                        Text(
-                            text = pick.wheelName,
-                            color = colorFor(pick.wheelName),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-                Spacer(Modifier.size(4.dp))
-                Text(
-                    text = pick.text,
-                    color = onText,
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.Bold,
-                    lineHeight = 30.sp
-                )
-            }
-        }
-    }
-}
-
 /** The "Recents" button. The list itself stays hidden until you ask for it. */
 @Composable
 private fun RecentsButton(count: Int, enabled: Boolean, onClick: () -> Unit) {
@@ -609,12 +640,12 @@ private fun RecentsButton(count: Int, enabled: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** The recents list: up to 30 past rolls, newest first. Tap one to bring it back. */
+/** The recents list: up to 30 past rolls. Tap one to bring it back, or empty the list. */
 @Composable
 private fun RecentsDialog(
     history: List<List<Pick>>,
-    colorFor: (String) -> Color,
     onRestore: (List<Pick>) -> Unit,
+    onClear: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val palette = LocalSparkPalette.current
@@ -637,13 +668,16 @@ private fun RecentsDialog(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 420.dp)
+                        .heightIn(max = 380.dp)
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     history.forEach { picks ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
+                        Text(
+                            text = picks.asInline(),
+                            color = palette.onBackground,
+                            fontSize = 14.sp,
+                            maxLines = 2,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
@@ -651,27 +685,16 @@ private fun RecentsDialog(
                                 .clickable { onRestore(picks) }
                                 .padding(12.dp)
                                 .semantics { contentDescription = "Recent idea: ${picks.asSpoken()}. Tap to bring it back." }
-                        ) {
-                            Box(
-                                Modifier
-                                    .size(10.dp)
-                                    .clip(CircleShape)
-                                    .background(colorFor(picks.firstOrNull()?.wheelName ?: ""))
-                            )
-                            Spacer(Modifier.size(10.dp))
-                            Text(
-                                text = picks.asInline(),
-                                color = palette.onBackground,
-                                fontSize = 14.sp,
-                                maxLines = 2,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
+                        )
                     }
                 }
             }
             Spacer(Modifier.size(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (history.isNotEmpty()) {
+                    TextButton(onClick = onClear) { Text("Clear all", color = palette.accent) }
+                }
+                Spacer(Modifier.weight(1f))
                 TextButton(onClick = onDismiss) { Text("Close", color = palette.onBackground) }
             }
         }
@@ -679,37 +702,8 @@ private fun RecentsDialog(
 }
 
 /**
- * The random-deck dice. Sits top-right and, on tap, jumps to a random deck and
- * rolls it. Tinted with the accent and lightly outlined so it reads clearly as
- * "shuffle to another deck" rather than just another roll button.
- */
-@Composable
-private fun DiceButton(enabled: Boolean, onClick: () -> Unit) {
-    val palette = LocalSparkPalette.current
-    Box(
-        modifier = Modifier
-            .size(48.dp)
-            .clip(CircleShape)
-            .background(palette.surfaceElevated)
-            .border(1.5.dp, palette.accent, CircleShape)
-            .alpha(if (enabled) 1f else 0.4f)
-            .clickable(enabled = enabled) { onClick() }
-            .semantics { contentDescription = "Random deck: jump to a random deck and collide" },
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = Icons.Filled.Casino,
-            contentDescription = null,
-            tint = palette.accent,
-            modifier = Modifier.size(24.dp)
-        )
-    }
-}
-
-/**
- * The per-pick editor. Tap any line of the result to open this: reroll just that
- * one wheel, or type your own value in its place. This replaces the old blanket
- * mutate button with something you aim precisely.
+ * The per-pick editor: reroll just that one wheel, or type your own value in its
+ * place. Tapping any line of the result opens this.
  */
 @Composable
 private fun PickActionDialog(
@@ -731,19 +725,14 @@ private fun PickActionDialog(
                 .background(palette.surface)
                 .padding(20.dp)
         ) {
-            // Which wheel, and its current value.
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.size(10.dp).clip(CircleShape).background(accent))
-                Text(pick.wheelName, color = accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            }
+            Text(pick.wheelName, color = accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.size(6.dp))
             Text(pick.text, color = palette.onBackground, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.size(16.dp))
 
             if (!custom) {
-                // Two clear choices.
                 PickOptionRow(icon = Icons.Filled.Casino, label = "Randomize this one", onClick = onRandomize)
-                Spacer(Modifier.size(4.dp))
+                Spacer(Modifier.size(8.dp))
                 PickOptionRow(icon = Icons.Filled.Edit, label = "Enter your own", onClick = { text = pick.text; custom = true })
                 Spacer(Modifier.size(12.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -771,7 +760,7 @@ private fun PickActionDialog(
 
 /** One tappable option row inside the per-pick editor. */
 @Composable
-private fun PickOptionRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+private fun PickOptionRow(icon: ImageVector, label: String, onClick: () -> Unit) {
     val palette = LocalSparkPalette.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -792,7 +781,7 @@ private fun PickOptionRow(icon: androidx.compose.ui.graphics.vector.ImageVector,
 /** A round secondary action button (save). */
 @Composable
 private fun SecondaryAction(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     description: String,
     enabled: Boolean,
     touch: androidx.compose.ui.unit.Dp,
@@ -814,7 +803,7 @@ private fun SecondaryAction(
     }
 }
 
-/** The signature soft-red COLLIDE / REROLL button. */
+/** The signature soft-red RANDOMIZE button. */
 @Composable
 private fun CollideButton(
     label: String,
@@ -833,35 +822,26 @@ private fun CollideButton(
             .alpha(if (enabled) 1f else 0.5f)
             .clickable(enabled = enabled) { onClick() }
             .padding(vertical = 18.dp)
-            .semantics { contentDescription = "$label. Collide the wheels into a new idea." },
+            .semantics { contentDescription = "$label. Randomize the wheels into a new idea." },
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = label,
-            color = Color(0xFF1A0B0C),
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold
-        )
+        Text(text = label, color = Color(0xFF1A0B0C), fontSize = 20.sp, fontWeight = FontWeight.Bold)
     }
 }
 
-/**
- * Resolve a wheel's chip colour. In colourblind mode we map the stored hue onto
- * the higher-separation palette by its position; otherwise we use the stored
- * colour directly. Either way a name label is shown, so colour is never alone.
- */
-private fun wheelColor(hex: String, colorblind: Boolean): Color {
-    if (!colorblind) return hex.toColorOrDefault(Color(0xFFE0555A))
-    // Map onto the colourblind-friendly list deterministically from the hex.
-    val index = (hex.hashCode().and(0x7FFFFFFF)) % colorblindFriendlyWheelColors.size
-    return colorblindFriendlyWheelColors[index].toColorOrDefault(Color(0xFFE0555A))
-}
+// --- Colour / symbol helpers ---
+
+/** The stored colour hex for a wheel by name (falls back to the brand red). */
+private fun candidateColor(wheels: List<Wheel>, name: String): String =
+    wheels.firstOrNull { it.name == name }?.colorHex ?: "#E0555A"
 
 /**
- * The colour to use for a pick, found from its wheel. Falls back to the accent
- * when the wheel is not in the current mix (e.g. an older recents entry).
+ * The tint for a glyph. In colourblind mode we use the higher-separation palette
+ * by position; otherwise the wheel's own colour.
  */
-private fun resultColor(name: String, wheels: List<Wheel>, colorblind: Boolean, fallback: Color): Color {
-    val hex = wheels.firstOrNull { it.name == name }?.colorHex ?: return fallback
-    return wheelColor(hex, colorblind)
-}
+private fun glyphColor(index: Int, colorblind: Boolean, hex: String): Color =
+    if (colorblind) {
+        colorblindFriendlyWheelColors[index % colorblindFriendlyWheelColors.size].toColorOrDefault(Color(0xFFE0555A))
+    } else {
+        hex.toColorOrDefault(Color(0xFFE0555A))
+    }
