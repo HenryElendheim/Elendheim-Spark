@@ -63,24 +63,11 @@ fun ElendheimSplash(
             .background(ElendheimBrand.Background),
         contentAlignment = Alignment.Center
     ) {
+        // Just the logo, matching the launcher icon. No title, no subtitle.
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(modifier = Modifier.scale(scale).alpha(alpha)) {
-                ElendheimSparkMark(sizeDp = 96)
+                ElendheimSparkMark(sizeDp = 128)
             }
-            Text(
-                text = appName,
-                color = ElendheimBrand.OnDark,
-                fontSize = 26.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 24.dp).alpha(alpha)
-            )
-            Text(
-                text = "roll. keep the sparks.",
-                color = ElendheimBrand.OnDarkMuted,
-                fontSize = 14.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 8.dp).alpha(alpha)
-            )
         }
     }
 }

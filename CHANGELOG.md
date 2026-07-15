@@ -4,6 +4,10 @@ All notable changes to Elendheim Spark are recorded here. Versions run from
 v1.0 upward; small changes bump the minor number (v1.1, v1.2...) and big ones
 step toward the next whole version.
 
+## v1.7 - Elendheim Spark
+
+- **Cleaner splash** - just the logo now, centred, with no title or tagline.
+
 ## v1.6 - Elendheim Spark
 
 - **New app logo** - a four-point spark with nested red/orange/gold/white
