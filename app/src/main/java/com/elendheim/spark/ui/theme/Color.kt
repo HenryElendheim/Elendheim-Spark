@@ -13,12 +13,12 @@ import com.elendheim.spark.branding.ElendheimBrand
 object SparkColors {
     val background = ElendheimBrand.Background
     val surface = ElendheimBrand.Surface
-    val surfaceElevated = Color(0xFF262A33)
+    val surfaceElevated = Color(0xFF2A1417)
     val accent = ElendheimBrand.SoftRed
     val accentPressed = ElendheimBrand.SoftRedDim
     val onBackground = ElendheimBrand.OnDark
     val onSurfaceMuted = ElendheimBrand.OnDarkMuted
-    val outline = Color(0xFF343945)
+    val outline = Color(0xFF3D2428)
 }
 
 // High-contrast variant: brighter text, firmer borders, punchier accent.

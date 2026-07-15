@@ -24,12 +24,13 @@ import androidx.compose.ui.unit.dp
  */
 object ElendheimBrand {
     // The core brand palette. These are the anchors the theme builds around.
-    val Background = Color(0xFF14161A)   // near-black dark gray
-    val Surface = Color(0xFF1C1F26)      // slightly lifted panels
+    // The base is a very dark red rather than a neutral gray.
+    val Background = Color(0xFF180B0D)   // very dark red-black
+    val Surface = Color(0xFF211012)      // slightly lifted panels
     val SoftRed = Color(0xFFE0555A)      // the signature accent
     val SoftRedDim = Color(0xFFB4464A)   // pressed / secondary accent
-    val OnDark = Color(0xFFECEEF2)       // primary text on dark
-    val OnDarkMuted = Color(0xFF9AA0AC)  // secondary text
+    val OnDark = Color(0xFFF0E7E8)       // primary text (warm white)
+    val OnDarkMuted = Color(0xFFB29CA0)  // secondary text
 }
 
 /**

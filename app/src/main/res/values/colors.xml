@@ -3,8 +3,8 @@
     <!-- Brand colours, mirrored here so the launch window (drawn before
          Compose starts) already matches the dark-gray / soft-red theme and
          there is no white flash on open. -->
-    <color name="elendheim_background">#14161A</color>
-    <color name="elendheim_surface">#1C1F26</color>
+    <color name="elendheim_background">#180B0D</color>
+    <color name="elendheim_surface">#211012</color>
     <color name="elendheim_soft_red">#E0555A</color>
     <color name="elendheim_on_dark">#ECEEF2</color>
 </resources>

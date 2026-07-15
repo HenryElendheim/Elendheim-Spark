@@ -28,9 +28,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -72,7 +74,8 @@ fun VaultRoute() {
         onSelectAll = vm::selectAll,
         onSelectFavorites = vm::selectFavorites,
         onDeckFilter = vm::setDeckFilter,
-        onOpen = { editing = it }
+        onOpen = { editing = it },
+        onDeleteMany = { vm.deleteMany(it) }
     )
 
     // Keep the open editor pointed at the freshest copy of its item.
@@ -102,10 +105,17 @@ fun VaultScreen(
     onSelectAll: () -> Unit,
     onSelectFavorites: () -> Unit,
     onDeckFilter: (String?) -> Unit,
-    onOpen: (SavedCollision) -> Unit
+    onOpen: (SavedCollision) -> Unit,
+    onDeleteMany: (List<SavedCollision>) -> Unit
 ) {
     val palette = LocalSparkPalette.current
     var showDecks by remember { mutableStateOf(false) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var confirmDeleteMany by remember { mutableStateOf(false) }
+
+    // Leaving selection mode always clears the selection.
+    fun exitSelection() { selectionMode = false; selectedIds = emptySet() }
 
     Column(
         modifier = Modifier
@@ -113,7 +123,37 @@ fun VaultScreen(
             .background(palette.background)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        Text("Vault", color = palette.onBackground, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Vault", color = palette.onBackground, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            if (state.totalCount > 0) {
+                TextButton(onClick = { if (selectionMode) exitSelection() else selectionMode = true }) {
+                    Text(if (selectionMode) "Cancel" else "Select", color = palette.accent)
+                }
+            }
+        }
+
+        // Selection action bar: how many, delete, done.
+        if (selectionMode) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(palette.surfaceElevated)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text("${selectedIds.size} selected", color = palette.onBackground, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                TextButton(
+                    onClick = { selectedIds = state.items.map { it.id }.toSet() }
+                ) { Text("Select all", color = palette.onBackground) }
+                TextButton(
+                    enabled = selectedIds.isNotEmpty(),
+                    onClick = { confirmDeleteMany = true }
+                ) { Text("Delete", color = if (selectedIds.isEmpty()) palette.onSurfaceMuted else palette.accent) }
+            }
+            Spacer(Modifier.size(8.dp))
+        }
+
         Spacer(Modifier.size(12.dp))
 
         // Search.
@@ -155,10 +195,19 @@ fun VaultScreen(
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(state.items, key = { it.id }) { item ->
+                    val isSelected = item.id in selectedIds
                     VaultCard(
                         item = item,
                         deckName = state.deckNames[item.deckId] ?: "",
-                        onClick = { onOpen(item) }
+                        selectionMode = selectionMode,
+                        selected = isSelected,
+                        onClick = {
+                            if (selectionMode) {
+                                selectedIds = if (isSelected) selectedIds - item.id else selectedIds + item.id
+                            } else {
+                                onOpen(item)
+                            }
+                        }
                     )
                 }
             }
@@ -172,6 +221,31 @@ fun VaultScreen(
             onPick = { onDeckFilter(it); showDecks = false },
             onDismiss = { showDecks = false }
         )
+    }
+    if (confirmDeleteMany) {
+        val toDelete = state.items.filter { it.id in selectedIds }
+        Dialog(onDismissRequest = { confirmDeleteMany = false }) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(palette.surface)
+                    .padding(20.dp)
+            ) {
+                Text("Delete ${toDelete.size} saved ${if (toDelete.size == 1) "idea" else "ideas"}?", color = palette.onBackground, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.size(6.dp))
+                Text("This can't be undone.", color = palette.onSurfaceMuted, fontSize = 14.sp)
+                Spacer(Modifier.size(16.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = { confirmDeleteMany = false }) { Text("Cancel", color = palette.onSurfaceMuted) }
+                    TextButton(onClick = {
+                        onDeleteMany(toDelete)
+                        confirmDeleteMany = false
+                        exitSelection()
+                    }) { Text("Delete", color = palette.accent) }
+                }
+            }
+        }
     }
 }
 
@@ -271,17 +345,30 @@ private fun DeckFilterRow(label: String, selected: Boolean, onClick: () -> Unit)
 }
 
 @Composable
-private fun VaultCard(item: SavedCollision, deckName: String, onClick: () -> Unit) {
+private fun VaultCard(
+    item: SavedCollision,
+    deckName: String,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
     val palette = LocalSparkPalette.current
     Row(
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .height(IntrinsicSize.Min)
             .clip(RoundedCornerShape(14.dp))
             .background(palette.surface)
-            .border(1.dp, palette.outline, RoundedCornerShape(14.dp))
+            .border(1.dp, if (selected) palette.accent else palette.outline, RoundedCornerShape(14.dp))
             .clickable { onClick() }
-            .semantics { contentDescription = "${savedName(item, deckName)}. ${item.picks.asSpoken()}. Tap to open." }
+            .semantics {
+                contentDescription = if (selectionMode) {
+                    "${savedName(item, deckName)}. ${if (selected) "Selected" else "Not selected"}. Tap to toggle."
+                } else {
+                    "${savedName(item, deckName)}. ${item.picks.asSpoken()}. Tap to open."
+                }
+            }
     ) {
         // A soft-red spine down the left edge -> gives the card a little identity.
         Box(
@@ -290,6 +377,16 @@ private fun VaultCard(item: SavedCollision, deckName: String, onClick: () -> Uni
                 .fillMaxHeight()
                 .background(palette.accent)
         )
+        if (selectionMode) {
+            Icon(
+                imageVector = if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+                contentDescription = null,
+                tint = if (selected) palette.accent else palette.onSurfaceMuted,
+                modifier = Modifier
+                    .padding(start = 12.dp)
+                    .size(22.dp)
+            )
+        }
         Column(modifier = Modifier.padding(14.dp)) {
             // Name (custom title, or "Deck #n") plus the favourite star.
             Row(verticalAlignment = Alignment.CenterVertically) {

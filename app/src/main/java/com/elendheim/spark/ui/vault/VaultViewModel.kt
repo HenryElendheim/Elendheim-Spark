@@ -94,6 +94,11 @@ class VaultViewModel(private val repository: SparkRepository) : ViewModel() {
         repository.deleteCollision(item)
     }
 
+    /** Delete several saved ideas at once (from the vault's selection mode). */
+    fun deleteMany(items: List<SavedCollision>) = viewModelScope.launch {
+        items.forEach { repository.deleteCollision(it) }
+    }
+
     /** Match the text of any pick, the note, or any tag, case-insensitively. */
     private fun matchesQuery(item: SavedCollision, q: String): Boolean {
         if (q.isBlank()) return true

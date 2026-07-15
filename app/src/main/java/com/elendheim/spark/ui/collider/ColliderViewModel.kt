@@ -12,6 +12,7 @@ import com.elendheim.spark.data.SparkRepository
 import com.elendheim.spark.engine.ColliderEngine
 import com.elendheim.spark.model.Deck
 import com.elendheim.spark.model.Pick
+import com.elendheim.spark.model.SavedCollision
 import com.elendheim.spark.model.Wheel
 import com.elendheim.spark.settings.SettingsRepository
 import com.elendheim.spark.settings.SparkSettings
@@ -33,7 +34,8 @@ data class ColliderUiState(
     val excludedWheelNames: Set<String> = emptySet(), // wheels switched off -> not in the mix
     val history: List<List<Pick>> = emptyList(),    // most-recent-first, capped
     val settings: SparkSettings = SparkSettings(),
-    val landedNonce: Long = 0L                       // bumps each roll -> triggers animation / haptic
+    val landedNonce: Long = 0L,                      // bumps each roll -> triggers animation / haptic
+    val isCurrentSaved: Boolean = false              // the current result already lives in the vault
 )
 
 /**
@@ -67,11 +69,13 @@ class ColliderViewModel(
     private var decksSnapshot: List<Deck> = emptyList()
     private var wheelsSnapshot: List<Wheel> = emptyList()
     private var settingsSnapshot: SparkSettings = SparkSettings()
+    private var vaultSnapshot: List<SavedCollision> = emptyList()
 
     init {
         viewModelScope.launch { repository.decks.collect { decksSnapshot = it } }
         viewModelScope.launch { repository.wheels.collect { wheelsSnapshot = it } }
         viewModelScope.launch { settingsRepo.settings.collect { settingsSnapshot = it } }
+        viewModelScope.launch { repository.vault.collect { vaultSnapshot = it } }
     }
 
     val uiState: StateFlow<ColliderUiState> = combine(
@@ -79,10 +83,14 @@ class ColliderViewModel(
         repository.wheels,
         settingsRepo.settings,
         selectedDeckId,
-        combine(current, excluded, history, landedNonce) { c, e, h, n -> Quad(c, e, h, n) }
+        combine(current, excluded, history, landedNonce, repository.vault) { c, e, h, n, v -> Quint(c, e, h, n, v) }
     ) { decks, wheels, settings, selId, roll ->
         val deck = resolveDeck(decks, selId, settings.defaultDeckId)
         val deckWheels = wheelsForDeck(deck, wheels)
+        // Already-saved when an identical collision (same deck and picks) is in
+        // the vault -> blocks duplicate saves and fills the bookmark.
+        val alreadySaved = deck != null && roll.current.isNotEmpty() &&
+            roll.vault.any { it.deckId == deck.id && it.picks == roll.current }
         ColliderUiState(
             loading = false,
             decks = decks,
@@ -92,7 +100,8 @@ class ColliderViewModel(
             excludedWheelNames = roll.excluded,
             history = roll.history,
             settings = settings,
-            landedNonce = roll.nonce
+            landedNonce = roll.nonce,
+            isCurrentSaved = alreadySaved
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ColliderUiState())
 
@@ -162,11 +171,16 @@ class ColliderViewModel(
         history.value = emptyList()
     }
 
-    /** Save the current result to the vault, auto-numbered. Snapshots the text. */
+    /**
+     * Save the current result to the vault, auto-numbered. Refuses to save a
+     * duplicate: if the same collision is already saved, it does nothing.
+     */
     fun saveCurrent(now: Long, onSaved: () -> Unit = {}) {
         val deck = currentDeck() ?: return
         val picks = current.value
         if (picks.isEmpty()) return
+        val alreadySaved = vaultSnapshot.any { it.deckId == deck.id && it.picks == picks }
+        if (alreadySaved) return
         viewModelScope.launch {
             repository.saveNewCollision(deck.id, picks, now)
             onSaved()
@@ -224,12 +238,13 @@ class ColliderViewModel(
         history.value = (listOf(picks) + history.value).take(30)
     }
 
-    // Small 4-tuple so we can combine four transient flows at once.
-    private data class Quad(
+    // Small 5-tuple so we can combine the transient flows plus the vault at once.
+    private data class Quint(
         val current: List<Pick>,
         val excluded: Set<String>,
         val history: List<List<Pick>>,
-        val nonce: Long
+        val nonce: Long,
+        val vault: List<SavedCollision>
     )
 
     companion object {

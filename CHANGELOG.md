@@ -4,6 +4,22 @@ All notable changes to Elendheim Spark are recorded here. Versions run from
 v1.0 upward; small changes bump the minor number (v1.1, v1.2...) and big ones
 step toward the next whole version.
 
+## v1.5 - Elendheim Spark
+
+New look and a lot more to play with.
+
+- **Very dark red theme** replaces the dark gray throughout.
+- **No duplicate saves.** Once an idea is in the vault you can't save it again
+  until you change it (reroll or edit a pick). The bookmark fills in, like a
+  ticked box, to show it's already saved.
+- **Way more starter content** - every wheel now ships with around 50 entries,
+  plus two new decks (Story Seeds and Art Prompts) with their own wheels.
+- **Bulk delete in the vault** - tap Select, choose several, and delete them at
+  once.
+- **Editor entries are alphabetical** now (the up/down arrows are gone); wheels
+  keep their manual ordering.
+- **Dice glow** - the deck flickers with a soft glow on each option as it rolls.
+
 ## v1.4 - Elendheim Spark
 
 More control, more accessibility, more polish.

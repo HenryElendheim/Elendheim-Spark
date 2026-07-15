@@ -84,8 +84,7 @@ fun EditorRoute() {
             onAddEntry = { text -> vm.addEntry(openWheel, text) },
             onBulkAdd = { vm.bulkAddEntries(openWheel, it) },
             onEditEntry = { id, text -> vm.editEntry(openWheel, id, text) },
-            onDeleteEntry = { vm.deleteEntry(openWheel, it) },
-            onMoveEntry = { id, up -> vm.moveEntry(openWheel, id, up) }
+            onDeleteEntry = { vm.deleteEntry(openWheel, it) }
         )
 
         openDeck != null -> DeckDetail(
@@ -292,8 +291,7 @@ private fun WheelDetail(
     onAddEntry: (String) -> Unit,
     onBulkAdd: (String) -> Unit,
     onEditEntry: (String, String) -> Unit,
-    onDeleteEntry: (String) -> Unit,
-    onMoveEntry: (String, Boolean) -> Unit
+    onDeleteEntry: (String) -> Unit
 ) {
     val palette = LocalSparkPalette.current
     var quickAdd by remember { mutableStateOf("") }
@@ -302,7 +300,10 @@ private fun WheelDetail(
     var bulk by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<Entry?>(null) }
     val canAdd = wheel.entries.size < maxEntries
-    val shownEntries = wheel.entries.filter { it.text.contains(search.trim(), ignoreCase = true) }
+    // Entries are shown alphabetically (case-insensitive) -> no manual ordering.
+    val shownEntries = wheel.entries
+        .filter { it.text.contains(search.trim(), ignoreCase = true) }
+        .sortedBy { it.text.lowercase() }
 
     Column(
         modifier = Modifier
@@ -397,8 +398,6 @@ private fun WheelDetail(
                             .padding(horizontal = 12.dp, vertical = 10.dp)
                     ) {
                         Text(entry.text, color = palette.onBackground, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                        IconAction(Icons.Filled.ArrowUpward, "Move ${entry.text} up") { onMoveEntry(entry.id, true) }
-                        IconAction(Icons.Filled.ArrowDownward, "Move ${entry.text} down") { onMoveEntry(entry.id, false) }
                         IconAction(Icons.Filled.Edit, "Edit ${entry.text}") { editing = entry }
                         IconAction(Icons.Filled.Delete, "Delete ${entry.text}") { onDeleteEntry(entry.id) }
                     }

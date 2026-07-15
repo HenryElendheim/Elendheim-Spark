@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
@@ -153,6 +154,7 @@ fun ColliderScreen(
     var diceDisplay by remember { mutableStateOf<String?>(null) }
     var diceRolling by remember { mutableStateOf(false) }
     var deckSettleNonce by remember { mutableStateOf(0L) }
+    var diceGlowNonce by remember { mutableStateOf(0L) }
 
     fun rollDice() {
         if (diceRolling) return
@@ -162,6 +164,7 @@ fun ColliderScreen(
             diceRolling = true
             for (i in 0 until 14) {
                 diceDisplay = names.random()
+                diceGlowNonce += 1    // a slight glow each time it flicks to a new option
                 delay(45L + i * 8L)   // slow down toward the end
             }
             onRandomDeck()            // now actually pick the deck (no auto-roll)
@@ -195,6 +198,7 @@ fun ColliderScreen(
             DeckPickerButton(
                 deckName = deckLabel,
                 settleNonce = deckSettleNonce,
+                glowNonce = diceGlowNonce,
                 onClick = { if (!diceRolling) showDeckPicker = true },
                 modifier = Modifier.weight(1f)
             )
@@ -251,11 +255,14 @@ fun ColliderScreen(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val saved = state.isCurrentSaved
             SecondaryAction(
-                icon = Icons.Outlined.BookmarkAdd,
-                description = "Save this idea to the vault",
-                enabled = state.current.isNotEmpty(),
+                icon = if (saved) Icons.Filled.Bookmark else Icons.Outlined.BookmarkAdd,
+                description = if (saved) "Already in your vault" else "Save this idea to the vault",
+                enabled = state.current.isNotEmpty() && !saved,
                 touch = touch,
+                tint = if (saved) palette.accent else palette.onBackground,
+                faded = state.current.isEmpty(),
                 onClick = {
                     if (settings.haptics) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     onSave()
@@ -327,23 +334,32 @@ fun ColliderScreen(
 private fun DeckPickerButton(
     deckName: String,
     settleNonce: Long,
+    glowNonce: Long,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val palette = LocalSparkPalette.current
     val scale = remember { Animatable(1f) }
+    // A short glow flash each time the dice flicks to a new option.
+    val glow = remember { Animatable(0f) }
     LaunchedEffect(settleNonce) {
         if (settleNonce == 0L) return@LaunchedEffect
         scale.snapTo(1.08f)
         scale.animateTo(1f, animationSpec = tween(180))
     }
+    LaunchedEffect(glowNonce) {
+        if (glowNonce == 0L) return@LaunchedEffect
+        glow.snapTo(1f)
+        glow.animateTo(0f, animationSpec = tween(140))
+    }
+    val borderColor = androidx.compose.ui.graphics.lerp(palette.outline, palette.accent, glow.value)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .scale(scale.value)
             .clip(RoundedCornerShape(20.dp))
             .background(palette.surfaceElevated)
-            .border(1.dp, palette.outline, RoundedCornerShape(20.dp))
+            .border(if (glow.value > 0f) 1.5.dp else 1.dp, borderColor, RoundedCornerShape(20.dp))
             .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 10.dp)
             .semantics { contentDescription = "Deck: $deckName. Tap to switch decks." }
@@ -793,6 +809,8 @@ private fun SecondaryAction(
     description: String,
     enabled: Boolean,
     touch: androidx.compose.ui.unit.Dp,
+    tint: Color? = null,
+    faded: Boolean = !enabled,
     onClick: () -> Unit
 ) {
     val palette = LocalSparkPalette.current
@@ -802,12 +820,12 @@ private fun SecondaryAction(
             .clip(CircleShape)
             .background(palette.surfaceElevated)
             .border(1.dp, palette.outline, CircleShape)
-            .alpha(if (enabled) 1f else 0.4f)
+            .alpha(if (faded) 0.4f else 1f)
             .clickable(enabled = enabled) { onClick() }
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        Icon(imageVector = icon, contentDescription = null, tint = palette.onBackground)
+        Icon(imageVector = icon, contentDescription = null, tint = tint ?: palette.onBackground)
     }
 }
 
