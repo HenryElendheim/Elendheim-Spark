@@ -34,8 +34,9 @@ object ElendheimBrand {
 }
 
 /**
- * The spark mark: a small soft-red burst. Drawn in code so it scales cleanly
- * and needs no image asset.
+ * The spark mark: a four-point spark with nested diamonds (red -> orange ->
+ * gold -> white) and a small companion dot. Drawn in code so it scales cleanly
+ * and matches the launcher icon. [color] is unused now (kept for callers).
  */
 @Composable
 fun ElendheimSparkMark(
@@ -43,31 +44,44 @@ fun ElendheimSparkMark(
     color: Color = ElendheimBrand.SoftRed,
     sizeDp: Int = 48
 ) {
+    val red = Color(0xFFF5333A)
+    val orange = Color(0xFFF4661F)
+    val gold = Color(0xFFFBBA1F)
+    val pink = Color(0xFFF6A9A0)
+
     Canvas(modifier = modifier.size(sizeDp.dp)) {
         val cx = size.width / 2f
         val cy = size.height / 2f
-        val long = size.minDimension * 0.46f
-        val short = size.minDimension * 0.12f
-        // Draw a four-point star by overlapping two diamonds -> a clean spark.
-        val path = androidx.compose.ui.graphics.Path().apply {
-            moveTo(cx, cy - long)
-            lineTo(cx + short, cy - short)
-            lineTo(cx + long, cy)
-            lineTo(cx + short, cy + short)
-            lineTo(cx, cy + long)
-            lineTo(cx - short, cy + short)
-            lineTo(cx - long, cy)
-            lineTo(cx - short, cy - short)
+        val s = size.minDimension
+
+        // A rotated square (diamond) reaching [half] from the centre.
+        fun diamond(half: Float) = androidx.compose.ui.graphics.Path().apply {
+            moveTo(cx, cy - half)
+            lineTo(cx + half, cy)
+            lineTo(cx, cy + half)
+            lineTo(cx - half, cy)
             close()
         }
-        drawPath(path, color)
-        // A tiny second spark, offset, to hint at two ideas colliding.
-        val s = size.minDimension * 0.16f
-        drawCircle(
-            color = ElendheimBrand.OnDark,
-            radius = s * 0.35f,
-            center = Offset(cx + long * 0.7f, cy - long * 0.7f)
-        )
+
+        // Outer four-point spark: concave sides pinched toward the centre.
+        val arm = s * 0.44f
+        val spark = androidx.compose.ui.graphics.Path().apply {
+            moveTo(cx, cy - arm)
+            quadraticBezierTo(cx, cy, cx + arm, cy)
+            quadraticBezierTo(cx, cy, cx, cy + arm)
+            quadraticBezierTo(cx, cy, cx - arm, cy)
+            quadraticBezierTo(cx, cy, cx, cy - arm)
+            close()
+        }
+        drawPath(spark, red)
+        drawPath(diamond(s * 0.30f), orange)
+        drawPath(diamond(s * 0.21f), gold)
+        drawPath(diamond(s * 0.13f), Color.White)
+
+        // Small companion dot, top-right: pink ring with a white centre.
+        val dot = Offset(cx + s * 0.30f, cy - s * 0.34f)
+        drawCircle(color = pink, radius = s * 0.10f, center = dot)
+        drawCircle(color = Color.White, radius = s * 0.06f, center = dot)
     }
 }
 

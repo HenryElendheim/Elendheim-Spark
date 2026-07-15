@@ -4,6 +4,12 @@ All notable changes to Elendheim Spark are recorded here. Versions run from
 v1.0 upward; small changes bump the minor number (v1.1, v1.2...) and big ones
 step toward the next whole version.
 
+## v1.6 - Elendheim Spark
+
+- **New app logo** - a four-point spark with nested red/orange/gold/white
+  diamonds and a small companion dot. The launcher icon and the in-app splash
+  mark both use it.
+
 ## v1.5 - Elendheim Spark
 
 New look and a lot more to play with.

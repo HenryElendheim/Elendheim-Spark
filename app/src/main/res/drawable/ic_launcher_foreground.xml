@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Foreground layer: a soft-red spark (a four-point burst) sitting inside the
-    adaptive-icon safe zone. Simple, brand-coloured, no photography needed.
+    Foreground layer for the adaptive launcher icon: a four-point spark with
+    nested diamonds (red -> orange -> gold -> white) and a small companion dot,
+    matching the app logo.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -9,13 +10,27 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- The four-point spark, drawn from the centre outward. -->
+    <!-- Outer four-point spark (concave sides pinched toward the centre). -->
     <path
-        android:fillColor="#E0555A"
-        android:pathData="M54,26 C57,42 66,51 82,54 C66,57 57,66 54,82 C51,66 42,57 26,54 C42,51 51,42 54,26 Z" />
+        android:fillColor="#F5333A"
+        android:pathData="M54,9 Q54,54 99,54 Q54,54 54,99 Q54,54 9,54 Q54,54 54,9 Z" />
 
-    <!-- A smaller off-centre spark to suggest two ideas colliding. -->
+    <!-- Nested diamonds, each a rotated square, centred. -->
     <path
-        android:fillColor="#F2888C"
-        android:pathData="M74,30 C75,36 78,39 84,40 C78,41 75,44 74,50 C73,44 70,41 64,40 C70,39 73,36 74,30 Z" />
+        android:fillColor="#F4661F"
+        android:pathData="M54,24 L84,54 L54,84 L24,54 Z" />
+    <path
+        android:fillColor="#FBBA1F"
+        android:pathData="M54,33 L75,54 L54,75 L33,54 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,41 L67,54 L54,67 L41,54 Z" />
+
+    <!-- Small companion dot, top-right: pink ring with a white centre. -->
+    <path
+        android:fillColor="#F6A9A0"
+        android:pathData="M70,30 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M74,30 a6,6 0 1,0 12,0 a6,6 0 1,0 -12,0 Z" />
 </vector>
